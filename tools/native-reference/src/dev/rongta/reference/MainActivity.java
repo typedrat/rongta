@@ -62,6 +62,9 @@ public final class MainActivity extends Activity {
             if ("handshake".equals(getIntent().getStringExtra("suite"))) {
                 result = HandshakeReference.generate(this);
             }
+            if ("image".equals(getIntent().getStringExtra("suite"))) {
+                result = ImageReference.generate(this);
+            }
             // Publish atomically, so the host never reads a partial result.
             File pending = new File(getFilesDir(), "reference.pending");
             try (FileOutputStream out = new FileOutputStream(pending)) {
@@ -70,7 +73,7 @@ public final class MainActivity extends Activity {
             if (!pending.renameTo(new File(getFilesDir(), "reference.json"))) {
                 throw new IllegalStateException("Cannot publish reference output");
             }
-            status.setText("Generated " + vectors.length() + " SDK reference vectors");
+            status.setText("Generated SDK " + getIntent().getStringExtra("suite") + " reference output");
         } catch (Throwable error) {
             Log.e("RongtaReference", "Native reference generation failed", error);
             status.setText(error.toString());

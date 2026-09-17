@@ -4,6 +4,9 @@ package com.rt.sdk;
 public final class NativeApis {
     static { System.loadLibrary("rt_printer_sdk"); }
 
+    public static native void setThreshold(int threshold);
+    public static native byte[] rgb2PrintData(byte[] argb, int width, int height, int algorithm, int invert);
+    public static native byte[] getImagePackageData(byte[] pixels, int width, int height, int reversed, int model, int copies, int next, int newAlgo);
     public static native void initProtocol();
     public static native void setODMPrinterType(int type);
     public static native byte[] getProtocolData();
