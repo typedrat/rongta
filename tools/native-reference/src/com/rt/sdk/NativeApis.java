@@ -7,5 +7,7 @@ public final class NativeApis {
     public static native void initProtocol();
     public static native void setODMPrinterType(int type);
     public static native byte[] getProtocolData();
+    public static native byte[] getShakeData();
+    public static native java.util.ArrayList<com.rt.sdk.responedata.DataPackage> decodePackages(byte[] bytes);
     public static native byte[] getCommandWithBytArray(int superCode, int subCode, byte[] data);
 }

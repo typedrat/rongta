@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+from handshake_inputs import scenarios
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = Path(__file__).resolve().parent
@@ -23,6 +24,7 @@ def run(*args, **kwargs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="ADB serial of the test emulator")
+    parser.add_argument("--suite", choices=["framing", "handshake"], default="framing")
     parser.add_argument("--library", type=Path,
                         default=ROOT / "analysis/native/arm64-v8a/librt_printer_sdk.so")
     parser.add_argument("--output", type=Path,
@@ -52,6 +54,7 @@ def main():
         with zipfile.ZipFile(apk, "a", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(dex / "classes.dex", "classes.dex")
             archive.write(library, "lib/arm64-v8a/librt_printer_sdk.so")
+            archive.writestr("assets/handshake-input.json", json.dumps(scenarios()))
         aligned = build / "reference.apk"
         run(build_tools / "zipalign", "-f", "4", apk, aligned)
         # Persist only the debug key so repeated installs use the same signer.
@@ -67,7 +70,8 @@ def main():
         run(*adb, "shell", "am", "force-stop", PACKAGE)
         run(*adb, "shell", "run-as", PACKAGE, "rm", "-f",
             "files/reference.json", "files/reference.pending", "files/error.txt")
-        run(*adb, "shell", "am", "start", "-W", "-n", PACKAGE + "/.MainActivity")
+        run(*adb, "shell", "am", "start", "-W", "-n", PACKAGE + "/.MainActivity",
+            "--es", "suite", args.suite)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             result = subprocess.run(adb + ["exec-out", "run-as", PACKAGE, "cat", "files/reference.json"],
@@ -87,9 +91,11 @@ def main():
             *adb, "shell", "getprop", "ro.build.fingerprint", capture_output=True,
             text=True).stdout.strip()
         reference["evidence"] = "Original SDK output on Android; no printer connected"
+        if args.suite == "handshake":
+            reference["evidence"] = "Simulated printer replies checked by original SDK; no hardware"
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(reference, indent=2) + "\n")
-        print(f"Saved {len(reference['vectors'])} vectors to {args.output}")
+        print(f"Saved {args.suite} reference cases to {args.output}")
 
 
 if __name__ == "__main__":

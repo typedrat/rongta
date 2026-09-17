@@ -13,7 +13,7 @@ import org.json.JSONObject;
 
 /** Executes the stock library locally. No Bluetooth or network permissions. */
 public final class MainActivity extends Activity {
-    private static String hex(byte[] bytes) {
+    static String hex(byte[] bytes) {
         StringBuilder text = new StringBuilder(bytes.length * 2);
         for (byte value : bytes) {
             text.append(Character.forDigit((value & 0xff) >>> 4, 16));
@@ -59,6 +59,9 @@ public final class MainActivity extends Activity {
                 .put("schema_version", 1)
                 .put("odm_printer_type", 28)
                 .put("vectors", vectors);
+            if ("handshake".equals(getIntent().getStringExtra("suite"))) {
+                result = HandshakeReference.generate(this);
+            }
             // Publish atomically, so the host never reads a partial result.
             File pending = new File(getFilesDir(), "reference.pending");
             try (FileOutputStream out = new FileOutputStream(pending)) {

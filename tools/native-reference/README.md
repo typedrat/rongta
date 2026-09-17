@@ -33,3 +33,20 @@ printer responses or evidence that every generated command is accepted.
 If startup fails, the script reports Java/native-load errors saved by the APK.
 For native crashes, inspect `adb -s SERIAL logcat -d`. Regeneration requires
 the proprietary library locally; Cargo tests only require the checked-in JSON.
+
+For handshake reference cases:
+
+```sh
+python3 -B tools/native-reference/generate.py --serial emulator-5554 \
+  --suite handshake --output analysis/handshake-reference.json
+```
+
+`handshake_inputs.py` constructs simulated printer replies independently with
+Python's `struct`, `hashlib`, and `zlib`. The APK feeds them to the original SDK,
+records its callbacks, and captures `getShakeData()` output after discovery.
+Two serial numbers succeed; a deliberately wrong challenge digest fails.
+The returned challenge deliberately differs from the SDK's random request.
+The checked-in `handshake.json` preserves these inputs and SDK observations.
+These are simulated exchanges, not hardware captures; numeric model/protocol
+values are fixture inputs and are not known R22 capabilities. The random
+challenge in generated requests changes when regenerating the fixture.

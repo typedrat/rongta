@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "odm_printer_type": 28,
+  "scenarios": [
+    {
+      "name": "success",
+      "serial": "R22-TEST-0001",
+      "expected_proof_ascii": "8f196e75808a3b57",
+      "responses": [
+        {
+          "name": "protocol",
+          "wire_hex": "a31e1c0014002101010f00010200010002020000000302000010eef53444",
+          "sdk_events": []
+        },
+        {
+          "name": "serial",
+          "wire_hex": "a31e1c0012002101060d005232322d544553542d30303031a6ad5295",
+          "sdk_events": [
+            {
+              "superclass": 0,
+              "subclass": 0,
+              "success": true,
+              "json": "{}"
+            }
+          ]
+        },
+        {
+          "name": "proof-ack",
+          "wire_hex": "a31e1c0005002101020000eee85238",
+          "sdk_events": []
+        },
+        {
+          "name": "info",
+          "wire_hex": "a31e1c005a0021010355007b224465764e616d65223a225232322066697874757265222c224669726d77617265223a22746573742d312e30222c224857566572223a22746573742d41222c22534e223a225232322d544553542d30303031227d865df779",
+          "sdk_events": []
+        },
+        {
+          "name": "model",
+          "wire_hex": "a31e1c001900210104140001020016000202000300030200cb000402008001871d767b",
+          "sdk_events": []
+        },
+        {
+          "name": "battery",
+          "wire_hex": "a31e1c00140021010e0f0001020081010202006b03030200010032aa8b18",
+          "sdk_events": []
+        },
+        {
+          "name": "challenge",
+          "wire_hex": "a31e1c00570021011752000110007072696e7465722d6e6f6e63652d30310220003261373736616531363563623432386535393861343462316663663061373733030d005232322d544553542d30303031040900746573742d61757468d9e894b4",
+          "sdk_events": [
+            {
+              "superclass": 0,
+              "subclass": 1,
+              "success": true,
+              "json": "{\n\t\"shakeHandCode\":\t\"printer-nonce-01\",\n\t\"shakeHandMD5\":\t\"2a776ae165cb428e598a44b1fcf0a773\",\n\t\"shakeHandSN\":\t\"R22-TEST-0001\",\n\t\"shakeHandAuthCode\":\t\"test-auth\",\n\t\"batteryVoltage\":\t\"3.85\",\n\t\"batteryPercent\":\t\"87.5\",\n\t\"batteryState\":\t\"1\",\n\t\"devName\":\t\"R22 fixture\",\n\t\"firmware\":\t\"test-1.0\",\n\t\"hwVer\":\t\"test-A\",\n\t\"sn\":\t\"R22-TEST-0001\",\n\t\"manufacturer\":\t\"Rongta\",\n\t\"devProdType\":\t\"22\",\n\t\"supportPaperSize\":\t\"3\",\n\t\"dpi\":\t\"203\",\n\t\"widthMaxDot\":\t\"384\"\n}"
+            }
+          ]
+        }
+      ],
+      "discovery_hex": "a31e1c000500110101000031ee359ba31e1c0005001101060000b4f87a9e",
+      "handshake_hex": "a31e1c001500110102100038663139366537353830386133623537e95bb062a31e1c00180011011713000110006663333937373662663732343437643141f46027a31e1c00050011010300005f3ab198a31e1c0005001101040000da2cfe9da31e1c00050011010e00000ca96990"
+    },
+    {
+      "name": "different-serial",
+      "serial": "R22-TEST-0002",
+      "expected_proof_ascii": "d9201f23c2dbc8de",
+      "responses": [
+        {
+          "name": "protocol",
+          "wire_hex": "a31e1c0014002101010f00010200010002020000000302000010eef53444",
+          "sdk_events": []
+        },
+        {
+          "name": "serial",
+          "wire_hex": "a31e1c0012002101060d005232322d544553542d303030321cfc5b0c",
+          "sdk_events": [
+            {
+              "superclass": 0,
+              "subclass": 0,
+              "success": true,
+              "json": "{}"
+            }
+          ]
+        },
+        {
+          "name": "proof-ack",
+          "wire_hex": "a31e1c0005002101020000eee85238",
+          "sdk_events": []
+        },
+        {
+          "name": "info",
+          "wire_hex": "a31e1c005a0021010355007b224465764e616d65223a225232322066697874757265222c224669726d77617265223a22746573742d312e30222c224857566572223a22746573742d41222c22534e223a225232322d544553542d30303032227ddfe3b17b",
+          "sdk_events": []
+        },
+        {
+          "name": "model",
+          "wire_hex": "a31e1c001900210104140001020016000202000300030200cb000402008001871d767b",
+          "sdk_events": []
+        },
+        {
+          "name": "battery",
+          "wire_hex": "a31e1c00140021010e0f0001020081010202006b03030200010032aa8b18",
+          "sdk_events": []
+        },
+        {
+          "name": "challenge",
+          "wire_hex": "a31e1c00570021011752000110007072696e7465722d6e6f6e63652d30310220003861666532353733316430336661616163356466333930393937633362633439030d005232322d544553542d30303032040900746573742d617574688808a61d",
+          "sdk_events": [
+            {
+              "superclass": 0,
+              "subclass": 1,
+              "success": true,
+              "json": "{\n\t\"shakeHandCode\":\t\"printer-nonce-01\",\n\t\"shakeHandMD5\":\t\"8afe25731d03faaac5df390997c3bc49\",\n\t\"shakeHandSN\":\t\"R22-TEST-0002\",\n\t\"shakeHandAuthCode\":\t\"test-auth\",\n\t\"batteryVoltage\":\t\"3.85\",\n\t\"batteryPercent\":\t\"87.5\",\n\t\"batteryState\":\t\"1\",\n\t\"devName\":\t\"R22 fixture\",\n\t\"firmware\":\t\"test-1.0\",\n\t\"hwVer\":\t\"test-A\",\n\t\"sn\":\t\"R22-TEST-0002\",\n\t\"manufacturer\":\t\"Rongta\",\n\t\"devProdType\":\t\"22\",\n\t\"supportPaperSize\":\t\"3\",\n\t\"dpi\":\t\"203\",\n\t\"widthMaxDot\":\t\"384\"\n}"
+            }
+          ]
+        }
+      ],
+      "discovery_hex": "a31e1c000500110101000031ee359ba31e1c0005001101060000b4f87a9e",
+      "handshake_hex": "a31e1c00150011010210006439323031663233633264626338646575c1bb7ba31e1c00180011011713000110006663333937373662663732343437643141f46027a31e1c00050011010300005f3ab198a31e1c0005001101040000da2cfe9da31e1c00050011010e00000ca96990"
+    },
+    {
+      "name": "wrong-digest",
+      "serial": "R22-TEST-0001",
+      "expected_proof_ascii": "8f196e75808a3b57",
+      "responses": [
+        {
+          "name": "protocol",
+          "wire_hex": "a31e1c0014002101010f00010200010002020000000302000010eef53444",
+          "sdk_events": []
+        },
+        {
+          "name": "serial",
+          "wire_hex": "a31e1c0012002101060d005232322d544553542d30303031a6ad5295",
+          "sdk_events": [
+            {
+              "superclass": 0,
+              "subclass": 0,
+              "success": true,
+              "json": "{}"
+            }
+          ]
+        },
+        {
+          "name": "proof-ack",
+          "wire_hex": "a31e1c0005002101020000eee85238",
+          "sdk_events": []
+        },
+        {
+          "name": "info",
+          "wire_hex": "a31e1c005a0021010355007b224465764e616d65223a225232322066697874757265222c224669726d77617265223a22746573742d312e30222c224857566572223a22746573742d41222c22534e223a225232322d544553542d30303031227d865df779",
+          "sdk_events": []
+        },
+        {
+          "name": "model",
+          "wire_hex": "a31e1c001900210104140001020016000202000300030200cb000402008001871d767b",
+          "sdk_events": []
+        },
+        {
+          "name": "battery",
+          "wire_hex": "a31e1c00140021010e0f0001020081010202006b03030200010032aa8b18",
+          "sdk_events": []
+        },
+        {
+          "name": "challenge",
+          "wire_hex": "a31e1c00570021011752000110007072696e7465722d6e6f6e63652d30310220003030303030303030303030303030303030303030303030303030303030303030030d005232322d544553542d30303031040900746573742d61757468b19e5515",
+          "sdk_events": [
+            {
+              "superclass": 0,
+              "subclass": 1,
+              "success": false,
+              "json": "{}"
+            }
+          ]
+        }
+      ],
+      "discovery_hex": "a31e1c000500110101000031ee359ba31e1c0005001101060000b4f87a9e",
+      "handshake_hex": "a31e1c001500110102100038663139366537353830386133623537e95bb062a31e1c00180011011713000110006663333937373662663732343437643141f46027a31e1c00050011010300005f3ab198a31e1c0005001101040000da2cfe9da31e1c00050011010e00000ca96990"
+    }
+  ],
+  "library_sha256": "4bbef7e782ac6ef37b758cba7aadf61ca29ad957870e3c5f96e23de5efd44695",
+  "android_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:15/AE3A.240806.043/12960925:userdebug/dev-keys",
+  "evidence": "Simulated printer replies checked by original SDK; no hardware"
+}
