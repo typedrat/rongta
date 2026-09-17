@@ -91,3 +91,37 @@ fn decoder_requires_explicit_override_for_oversized_sdk_vector() {
     let message: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(message["payload_hex"].as_str().unwrap().len(), 8192);
 }
+
+#[test]
+fn info_help_exposes_connection_and_diagnostic_options() {
+    let output = usage::test::command!("rongta", "info", "--help").assert_success();
+    let help = String::from_utf8(output.stdout).unwrap();
+    for flag in ["--adapter", "--timeout", "--pin", "--verbose"] {
+        assert!(help.contains(flag), "missing {flag}: {help}");
+    }
+}
+
+#[test]
+fn invalid_info_arguments_fail_before_touching_bluetooth() {
+    for (args, expected) in [
+        (vec!["not-a-mac"], "Invalid printer Bluetooth address"),
+        (
+            vec!["AA:BB:CC:DD:EE:FF", "--timeout", "0"],
+            "--timeout must be",
+        ),
+        (
+            vec!["AA:BB:CC:DD:EE:FF", "--pin", "01234567890123456"],
+            "--pin must contain",
+        ),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rongta"))
+            .arg("info")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let message = String::from_utf8(output.stderr).unwrap();
+        assert!(message.contains(expected), "{message}");
+    }
+}

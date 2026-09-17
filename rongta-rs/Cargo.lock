@@ -940,6 +940,8 @@ dependencies = [
  "bytes",
  "crc",
  "deku",
+ "futures-util",
+ "getrandom 0.4.3",
  "hex",
  "image",
  "md-5",

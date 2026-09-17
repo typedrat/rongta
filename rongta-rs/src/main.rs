@@ -1,16 +1,16 @@
 use anyhow::{Context, Result, ensure};
 use bytes::BytesMut;
-use rongta::protocol::{Frame, FrameCodec};
+use rongta::{bluetooth::Connection, client, handshake::Handshake, protocol::FrameCodec};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio_util::codec::Decoder;
 use usage::{Args, Cli, Subcommands};
 
 /// Experimental Rongta R22 printer protocol tools
 ///
-/// Generate and inspect protocol bytes offline. Live printer connections are
-/// not implemented yet.
+/// Inspect an R22 over Bluetooth Classic SPP or work with protocol bytes offline.
 #[derive(Cli)]
 #[usage(bin = "rongta", version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
@@ -22,6 +22,7 @@ struct Cli {
 enum Commands {
     Discovery(Discovery),
     Decode(Decode),
+    Info(Info),
 }
 
 /// Write the two R22 discovery packets as binary to stdout
@@ -41,22 +42,82 @@ struct Decode {
     max_body_len: u16,
 }
 
-fn main() -> Result<()> {
+/// Connect to an R22, complete its handshake, and print information as JSON
+///
+/// Uses host BlueZ: stop bt-bridge and restore host Bluetooth first.
+/// Pairing uses the current BlueZ agent unless --pin is supplied.
+#[derive(Args)]
+struct Info {
+    /// Printer Bluetooth MAC address (AA:BB:CC:DD:EE:FF)
+    address: String,
+    /// Host BlueZ adapter; defaults to the system's default adapter
+    #[usage(long)]
+    adapter: Option<String>,
+    /// Deadline in seconds for connection, then separately for the handshake
+    #[usage(long, default = "30")]
+    timeout: u64,
+    /// Legacy pairing PIN, if required by the printer
+    #[usage(long)]
+    pin: Option<String>,
+    /// Log raw transmitted/received bytes to stderr
+    #[usage(long, short = 'v')]
+    verbose: bool,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut output = io::stdout().lock();
     match cli.command {
         Commands::Discovery(_) => {
-            for subclass in [1, 6] {
-                let frame = Frame {
-                    mode: 0,
-                    message_type: 1,
-                    sub_message_type: 1,
-                    superclass: 1,
-                    subclass,
-                    payload: Vec::new(),
-                };
+            for frame in Handshake::new([0; 8]).discovery() {
                 output.write_all(&frame.encode()?)?;
             }
+        }
+        Commands::Info(args) => {
+            let address = args
+                .address
+                .parse()
+                .context("Invalid printer Bluetooth address")?;
+            ensure!(
+                (1..=3600).contains(&args.timeout),
+                "--timeout must be between 1 and 3600 seconds"
+            );
+            if let Some(pin) = &args.pin {
+                ensure!(
+                    (1..=16).contains(&pin.len()) && pin.is_ascii() && !pin.contains('\0'),
+                    "--pin must contain 1–16 ASCII characters without NUL"
+                );
+            }
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                        if args.verbose {
+                            "rongta=debug".into()
+                        } else {
+                            "rongta=info".into()
+                        }
+                    }),
+                )
+                .with_writer(io::stderr)
+                .with_ansi(false)
+                .init();
+            let timeout = Duration::from_secs(args.timeout);
+            let mut nonce = [0; 8];
+            getrandom::fill(&mut nonce).context("Generating handshake nonce")?;
+            let mut connection =
+                Connection::connect(address, args.adapter.as_deref(), args.pin, timeout).await?;
+            let info = client::query_info(
+                &mut connection.stream,
+                nonce,
+                client::Options {
+                    timeout,
+                    ..Default::default()
+                },
+            )
+            .await?;
+            serde_json::to_writer_pretty(&mut output, &info)?;
+            writeln!(output)?;
         }
         Commands::Decode(args) => {
             ensure!(args.max_body_len >= 5, "--max-body-len must be at least 5");
