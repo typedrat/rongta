@@ -69,8 +69,9 @@ Java driver to connected. A socket opening alone is not SDK-level success.
 The selected branch prefixes frames with bytes `a3 1e`, followed by the
 ODM/protocol byte `1c`. The cleartext layout has an 11-byte header, payload,
 and a 4-byte CRC. Length fields, message type/subtype, superclass/subclass,
-and the CRC calculation are visible in this function; a standalone encoder
-still needs reference-vector validation.
+and the CRC calculation are visible in this function. The Rust encoder and
+streaming decoder now match original SDK reference vectors; see
+[framing.md](framing.md) for the exact layout, CRC parameters, and bounds.
 
 `getEncryptType` (`0x00140ac0`) returns 2 only for `RTProtocalXiaoMi`, and
 zero otherwise. Rongta's traced discovery, handshake, and raster commands
@@ -134,7 +135,7 @@ configured inter-command delay. There is no BLE MTU/chunking step in this path.
   setup commands and `05/0b -> (05/0e, 05/0d...) -> 05/0c` structure.
 - Confirm the reported width, printed alignment, status messages, and pacing.
 
-Useful work before arrival: reproduce the cleartext frame encoder and CRC,
-generate reference packets by calling the original SDK offline, and map
+Completed before arrival: reproduce the cleartext frame encoder and CRC and
+generate reference packets by calling the original SDK offline. Next, map
 the challenge and Huffman encoding. Actual printer replies are needed to
 validate device behavior, not to identify which code implements it.

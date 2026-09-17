@@ -940,6 +940,7 @@ dependencies = [
  "bytes",
  "crc",
  "deku",
+ "hex",
  "image",
  "md-5",
  "proptest",

@@ -5,7 +5,8 @@ repository root.
 
 The first target is the Android R22 path documented in [r22-path.md](r22-path.md):
 Rongta protocol 28 over Bluetooth Classic SPP/RFCOMM. Hardware behavior remains
-unverified. The current executable only exposes help and version information.
+unverified. The executable now generates discovery bytes and decodes raw packet
+streams offline; [framing.md](framing.md) records the SDK-validated wire format.
 
 | Responsibility | Selected crates |
 | --- | --- |
@@ -18,6 +19,7 @@ unverified. The current executable only exposes help and version information.
 | Image decoding and manipulation | `image`, initially PNG and PNM |
 | Structured output and fixtures | `serde`, `serde_json` |
 | Diagnostics | `tracing`, `tracing-subscriber` |
+| Packet hex output | `hex` |
 | Protocol and application errors | `thiserror`, `anyhow` |
 | Property tests and CLI test helpers | `proptest`, Usage's `test` feature |
 
