@@ -4,5 +4,9 @@
 /analysis/
 /captures/
 /rongta-rs/target/
+/rongta.gpr
+/rongta.rep/
+/rongta.lock
+/rongta.lock~
 *.apk
 *.xapk
