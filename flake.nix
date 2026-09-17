@@ -24,7 +24,7 @@
         let
           android = pkgs.androidenv.composeAndroidPackages {
             platformVersions = [ "35" ];
-            buildToolsVersions = [ ];
+            buildToolsVersions = [ "35.0.0" ];
             toolsVersion = null;
             includeEmulator = true;
             includeSystemImages = true;
@@ -57,6 +57,7 @@
               pkgs.stdenv.cc
               pkgs.pkg-config
               pkgs.dbus
+              pkgs.jdk
             ];
 
             env = [
