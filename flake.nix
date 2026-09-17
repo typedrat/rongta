@@ -1,5 +1,5 @@
 {
-  description = "Rongta printer analysis with Android Emulator and Bumble";
+  description = "Rongta printer tools and analysis with Android Emulator and Bumble";
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
@@ -49,9 +49,25 @@
               pkgs.python3Packages.bumble
               pkgs.bluez
               pkgs.wireshark
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.clippy
+              pkgs.rust-analyzer
+              pkgs.stdenv.cc
+              pkgs.pkg-config
+              pkgs.dbus
             ];
 
             env = [
+              {
+                name = "PKG_CONFIG_PATH";
+                prefix = "${pkgs.dbus.dev}/lib/pkgconfig";
+              }
+              {
+                name = "RUST_SRC_PATH";
+                value = "${pkgs.rustPlatform.rustLibSrc}";
+              }
               {
                 name = "ANDROID_HOME";
                 value = sdkRoot;

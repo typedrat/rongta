@@ -3,7 +3,7 @@
 The flake uses flake-parts and numtide/devshell to provide an x86_64 Linux
 development shell with Android Emulator,
 an Android 15 Google APIs x86_64 system image with ARM64 translation, ADB,
-Bumble, BlueZ, and Wireshark.
+Bumble, BlueZ, Wireshark, and the Rust toolchain with D-Bus build dependencies.
 The SDK configuration accepts the Android SDK license and enables unfree
 packages. The first shell load downloads the SDK and system image.
 
@@ -14,6 +14,31 @@ nix develop
 ```
 
 Entering the shell does not launch Android or change Bluetooth services.
+
+## Rust CLI
+
+The Rust project lives in `rongta-rs/`. The initial scaffold exposes help and
+version information. Printer commands and protocol handling are not implemented
+yet. Run these commands from the repository root with the dev shell loaded:
+
+```sh
+cd rongta-rs
+cargo run -- --help
+cargo run -- --version
+cargo check --locked --all-targets
+cargo clippy --locked --all-targets -- -D warnings
+cargo fmt --check
+```
+
+Dependency choices and protocol boundaries are recorded in
+[notes/rust-cli.md](notes/rust-cli.md). `rongta-rs/Cargo.lock` pins the resolved
+dependencies.
+The planned native transport uses host BlueZ and Bluetooth Classic SPP/RFCOMM.
+Stop the emulator bridge and restore host Bluetooth as described below before
+using native Bluetooth commands once they are implemented.
+
+## Emulator commands
+
 Run `menu` to list the available commands:
 
 | Command | Purpose |

@@ -1,0 +1,27 @@
+[package]
+name = "rongta"
+version = "0.1.0"
+edition = "2024"
+description = "Experimental Rongta R22 printer protocol tools"
+publish = false
+
+[dependencies]
+anyhow = "1"
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
+bytes = "1"
+crc = "3"
+deku = "0.20"
+image = { version = "0.25", default-features = false, features = ["png", "pnm"] }
+md-5 = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "time", "signal", "sync"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+usage = { package = "usage-rs", version = "6", features = ["completions"] }
+
+[dev-dependencies]
+proptest = "1"
+usage = { package = "usage-rs", version = "6", features = ["test"] }

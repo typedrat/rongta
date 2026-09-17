@@ -3,5 +3,6 @@
 /result-*
 /analysis/
 /captures/
+/rongta-rs/target/
 *.apk
 *.xapk
