@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm", "serde"] }
 bytes = "1"
 crc = "3"
 deku = "0.20"

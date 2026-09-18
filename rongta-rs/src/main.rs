@@ -21,10 +21,25 @@ struct Cli {
 #[derive(Subcommands)]
 enum Commands {
     Discovery(Discovery),
+    Scan(Scan),
     Decode(Decode),
     Info(Info),
     Image(Image),
     Print(Print),
+}
+
+/// Discover Bluetooth devices and return their names and addresses as JSON
+///
+/// Searches Classic and LE without pairing. Includes BlueZ's cached devices,
+/// which may be out of range. SPP service UUIDs may be unknown until connected.
+#[derive(Args)]
+struct Scan {
+    /// Host BlueZ adapter; defaults to the system's default adapter
+    #[usage(long)]
+    adapter: Option<String>,
+    /// Discovery duration in seconds (1–3600)
+    #[usage(long, default = "10")]
+    timeout: u64,
 }
 
 /// Write the two R22 discovery packets as binary to stdout
@@ -133,6 +148,18 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut output = io::stdout().lock();
     match cli.command {
+        Commands::Scan(args) => {
+            ensure!(
+                (1..=3600).contains(&args.timeout),
+                "--timeout must be between 1 and 3600 seconds"
+            );
+            init_logging(false);
+            let devices =
+                rongta::bluetooth::scan(args.adapter.as_deref(), Duration::from_secs(args.timeout))
+                    .await?;
+            serde_json::to_writer_pretty(&mut output, &devices)?;
+            writeln!(output)?;
+        }
         Commands::Discovery(_) => {
             for frame in Handshake::new([0; 8]).discovery() {
                 output.write_all(&frame.encode()?)?;

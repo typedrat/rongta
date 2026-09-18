@@ -248,3 +248,25 @@ fn invalid_print_arguments_fail_before_touching_bluetooth() {
         assert!(error.contains(expected), "{error}");
     }
 }
+
+#[test]
+fn scan_help_exposes_discovery_options() {
+    let output = usage::test::command!("rongta", "scan", "--help").assert_success();
+    let help = String::from_utf8(output.stdout).unwrap();
+    for flag in ["--adapter", "--timeout"] {
+        assert!(help.contains(flag), "missing {flag}: {help}");
+    }
+}
+
+#[test]
+fn scan_rejects_invalid_duration_before_touching_bluetooth() {
+    for seconds in ["0", "3601"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rongta"))
+            .args(["scan", "--timeout", seconds])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("--timeout must be between"));
+    }
+}

@@ -40,14 +40,27 @@ Dependency choices and protocol boundaries are recorded in
 [notes/rust-cli.md](notes/rust-cli.md). `rongta-rs/Cargo.lock` pins the resolved
 dependencies.
 The native transport uses host BlueZ. Stop the emulator bridge and restore host
-Bluetooth as described below before running `info` or `print`. Find the printer's MAC with
-`bluetoothctl scan on` (then `scan off`). From `rongta-rs/`:
+Bluetooth as described below before running `scan`, `info`, or `print`. From `rongta-rs/`:
 
 ```sh
+cargo run -- scan --adapter hci0 --timeout 10
+# Use the printer address from the scan result:
 cargo run -- info AA:BB:CC:DD:EE:FF --adapter hci0 --verbose
 # Save the result and timestamped TX/RX hex logs for comparison tomorrow:
 cargo run -- info AA:BB:CC:DD:EE:FF --verbose > info.json 2> info.log
 ```
+
+`scan` searches Classic Bluetooth and BLE for 10 seconds by default, then emits
+an address-sorted JSON array. Each device includes `name`, `address`, `rssi`,
+`paired`, `connected`, `spp`, and `known_before_scan`. Progress goes to stderr.
+It does not pair or connect. BlueZ includes cached devices, so a listed address
+is not proof of current proximity; `known_before_scan` identifies entries that
+already existed. Names and RSSI can be null, and `spp` reflects only BlueZ's known
+service UUIDs (null if unavailable). A false or null `spp` does not rule out a
+printer: service discovery may require a connection. Devices are not filtered
+by name or UUID. An empty result is `[]`; adapter/discovery failures return nonzero.
+`--timeout` sets the discovery interval; adapter setup and reading result
+properties can take additional time.
 
 `info` discovers the selected MAC if BlueZ does not know it yet, pairs if needed,
 and resolves the SPP channel through BlueZ/SDP. Pairing uses your existing BlueZ

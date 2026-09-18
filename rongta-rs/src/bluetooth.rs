@@ -153,3 +153,166 @@ impl Connection {
         })
     }
 }
+
+/// BlueZ's discovery results can include cached devices that are out of range.
+#[derive(Debug, serde::Serialize)]
+pub struct ScanDevice {
+    pub address: Address,
+    pub name: Option<String>,
+    pub rssi: Option<i16>,
+    pub paired: bool,
+    pub connected: bool,
+    /// None means service UUIDs are unavailable; false is not proof of no SPP.
+    pub spp: Option<bool>,
+    pub known_before_scan: bool,
+}
+
+/// Discover on both supported transports without pairing or connecting.
+pub async fn scan(adapter_name: Option<&str>, duration: Duration) -> Result<Vec<ScanDevice>> {
+    ensure!(!duration.is_zero(), "Scan duration must be nonzero");
+    let session = Session::new()
+        .await
+        .context("Connecting to BlueZ; stop bt-bridge and start bluetooth.service first")?;
+    let adapter = match adapter_name {
+        Some(name) => session.adapter(name)?,
+        None => session
+            .default_adapter()
+            .await
+            .context("No BlueZ adapter; stop bt-bridge and restore host Bluetooth")?,
+    };
+    ensure!(
+        adapter.is_powered().await?,
+        "Adapter {} is powered off; power it on with bluetoothctl",
+        adapter.name()
+    );
+    let known: std::collections::BTreeSet<_> =
+        adapter.device_addresses().await?.into_iter().collect();
+    adapter
+        .set_discovery_filter(DiscoveryFilter {
+            transport: DiscoveryTransport::Auto,
+            ..Default::default()
+        })
+        .await?;
+    let events = adapter
+        .discover_devices()
+        .await
+        .context("Starting Bluetooth discovery")?;
+    tokio::pin!(events);
+    tracing::info!(
+        adapter = adapter.name(),
+        seconds = duration.as_secs(),
+        "Scanning Bluetooth devices (including BlueZ cache)"
+    );
+    let addresses = scan_addresses(&mut events, duration).await?;
+    // Read properties at the end so inquiry has time to resolve device names.
+    // Keep discovery alive while reading RSSI; stopping it can clear that property.
+    let mut pending = futures_util::stream::iter(addresses.into_iter().map(|address| {
+        let adapter = &adapter;
+        let known = &known;
+        async move {
+            let device = adapter.device(address)?;
+            let result = tokio::try_join!(
+                device.name(),
+                device.rssi(),
+                device.uuids(),
+                device.is_paired(),
+                device.is_connected()
+            );
+            match result {
+                Ok((name, rssi, uuids, paired, connected)) => Ok(Some(ScanDevice {
+                    address,
+                    name,
+                    rssi,
+                    paired,
+                    connected,
+                    spp: uuids.map(|uuids| uuids.contains(&SPP_UUID)),
+                    known_before_scan: known.contains(&address),
+                })),
+                Err(error)
+                    if matches!(
+                        error.kind,
+                        bluer::ErrorKind::NotFound | bluer::ErrorKind::DoesNotExist
+                    ) =>
+                {
+                    Ok(None)
+                }
+                Err(error) => {
+                    Err(error).with_context(|| format!("Reading discovered device {address}"))
+                }
+            }
+        }
+    }))
+    .buffer_unordered(8);
+    let mut devices = vec![];
+    while let Some(result) = pending.next().await {
+        if let Some(device) = result? {
+            devices.push(device);
+        }
+    }
+    devices.sort_by_key(|device| device.address);
+    Ok(devices)
+}
+
+async fn scan_addresses(
+    mut events: impl futures_util::Stream<Item = AdapterEvent> + Unpin,
+    duration: Duration,
+) -> Result<std::collections::BTreeSet<Address>> {
+    let mut addresses = std::collections::BTreeSet::new();
+    let deadline = tokio::time::sleep(duration);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut deadline => return Ok(addresses),
+            event = events.next() => match event {
+                Some(AdapterEvent::DeviceAdded(address)) => { addresses.insert(address); },
+                Some(AdapterEvent::DeviceRemoved(address)) => { addresses.remove(&address); },
+                Some(AdapterEvent::PropertyChanged(bluer::AdapterProperty::Powered(false))) => bail!("Bluetooth adapter powered off during discovery"),
+                Some(_) => {},
+                None => bail!("Bluetooth discovery stopped before the scan completed"),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+    use futures_util::stream;
+
+    #[tokio::test(start_paused = true)]
+    async fn deduplicates_and_removes_devices_until_deadline() {
+        let a: Address = "AA:BB:CC:DD:EE:01".parse().unwrap();
+        let b: Address = "AA:BB:CC:DD:EE:02".parse().unwrap();
+        let events = stream::iter([
+            AdapterEvent::DeviceAdded(a),
+            AdapterEvent::DeviceAdded(a),
+            AdapterEvent::DeviceAdded(b),
+            AdapterEvent::DeviceRemoved(a),
+        ])
+        .chain(stream::pending());
+        let found = scan_addresses(events, Duration::from_secs(10))
+            .await
+            .unwrap();
+        assert_eq!(found.into_iter().collect::<Vec<_>>(), vec![b]);
+    }
+
+    #[tokio::test]
+    async fn premature_discovery_end_or_power_loss_is_an_error() {
+        assert!(
+            scan_addresses(stream::empty(), Duration::from_secs(10))
+                .await
+                .is_err()
+        );
+        let events = stream::iter([AdapterEvent::PropertyChanged(
+            bluer::AdapterProperty::Powered(false),
+        )]);
+        assert!(
+            scan_addresses(events, Duration::from_secs(10))
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("powered off")
+        );
+    }
+}
