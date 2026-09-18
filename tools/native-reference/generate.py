@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
-from handshake_inputs import scenarios
+from handshake_inputs import scenarios, reply, number
 from image_inputs import inputs as image_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +25,7 @@ def run(*args, **kwargs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="ADB serial of the test emulator")
-    parser.add_argument("--suite", choices=["framing", "handshake", "image"], default="framing")
+    parser.add_argument("--suite", choices=["framing", "handshake", "image", "print"], default="framing")
     parser.add_argument("--library", type=Path,
                         default=ROOT / "analysis/native/arm64-v8a/librt_printer_sdk.so")
     parser.add_argument("--output", type=Path,
@@ -57,6 +57,10 @@ def main():
             archive.write(library, "lib/arm64-v8a/librt_printer_sdk.so")
             archive.writestr("assets/handshake-input.json", json.dumps(scenarios()))
             archive.writestr("assets/image-input.json", json.dumps(image_inputs()))
+            archive.writestr("assets/print-input.json", json.dumps([
+                dict(name=f"status-{value}", value=value, wire_hex=reply(19, number(1, value)))
+                for value in [0, 128, 1, 2, 0x8080]
+            ] + [dict(name="notify-printing", value=128, wire_hex=reply(18, number(1,128), 0x21))]))
         aligned = build / "reference.apk"
         run(build_tools / "zipalign", "-f", "4", apk, aligned)
         # Persist only the debug key so repeated installs use the same signer.

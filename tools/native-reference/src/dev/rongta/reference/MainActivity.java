@@ -65,6 +65,9 @@ public final class MainActivity extends Activity {
             if ("image".equals(getIntent().getStringExtra("suite"))) {
                 result = ImageReference.generate(this);
             }
+            if ("print".equals(getIntent().getStringExtra("suite"))) {
+                result = PrintReference.generate(this);
+            }
             // Publish atomically, so the host never reads a partial result.
             File pending = new File(getFilesDir(), "reference.pending");
             try (FileOutputStream out = new FileOutputStream(pending)) {

@@ -4,7 +4,7 @@ package com.rt.sdk;
 public enum FunCodeEnum {
     RT_CONNECT_PROTOCOL(0, 0), RT_CONNECT_HANDSHAKE(0, 1),
     PROTOCOL(1, 1), PROOF(1, 2), INFO(1, 3), MODEL(1, 4),
-    SERIAL(1, 6), BATTERY(1, 14), CHALLENGE(1, 23), NULL(255, 255);
+    SERIAL(1, 6), BATTERY(1, 14), CHALLENGE(1, 23), STATUS(1,19), NOTIFY_STATUS(1,18), NULL(255, 255);
     public final int superCode;
     public final int subCode;
     FunCodeEnum(int superCode, int subCode) {

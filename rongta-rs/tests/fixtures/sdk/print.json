@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "odm_printer_type": 28,
+  "commands": [
+    {
+      "name": "status",
+      "wire_hex": "a31e1c00050011011300002f999784"
+    },
+    {
+      "name": "connected",
+      "wire_hex": "a31e1c00060011011e01000131c7f8fd"
+    },
+    {
+      "name": "mode-0",
+      "wire_hex": "a31e1c0006001105290100007f918312"
+    },
+    {
+      "name": "density-0",
+      "wire_hex": "a31e1c00080011050403000308004eb71b65"
+    },
+    {
+      "name": "density-8",
+      "wire_hex": "a31e1c00080011050403000308087c3fc06b"
+    },
+    {
+      "name": "density-15",
+      "wire_hex": "a31e1c000800110504030003080fdfaaa4f5"
+    },
+    {
+      "name": "speed-8",
+      "wire_hex": "a31e1c00060011050701000840c1b55c"
+    },
+    {
+      "name": "speed-16",
+      "wire_hex": "a31e1c0006001105070100101659d94f"
+    },
+    {
+      "name": "feed-1",
+      "wire_hex": "a31e1c000800110508030001010012189fc0"
+    },
+    {
+      "name": "feed-256",
+      "wire_hex": "a31e1c0008001105080300010001c51983ae"
+    }
+  ],
+  "responses": [
+    {
+      "name": "status-0",
+      "value": 0,
+      "wire_hex": "a31e1c000a0021011305000102000000785eea4f",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 19,
+          "success": true,
+          "json": "{\n\t\"printStatus\":\t\"0\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "status-128",
+      "value": 128,
+      "wire_hex": "a31e1c000a002101130500010200800033c66974",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 19,
+          "success": true,
+          "json": "{\n\t\"printStatus\":\t\"128\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "status-1",
+      "value": 1,
+      "wire_hex": "a31e1c000a0021011305000102000100396ff156",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 19,
+          "success": true,
+          "json": "{\n\t\"printStatus\":\t\"1\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "status-2",
+      "value": 2,
+      "wire_hex": "a31e1c000a0021011305000102000200fa3cdc7d",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 19,
+          "success": true,
+          "json": "{\n\t\"printStatus\":\t\"2\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "status-32896",
+      "value": 32896,
+      "wire_hex": "a31e1c000a00210113050001020080801345d199",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 19,
+          "success": true,
+          "json": "{\n\t\"printStatus\":\t\"32896\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "notify-printing",
+      "value": 128,
+      "wire_hex": "a31e1c000a0021011205000102008000adc6c3b8",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    }
+  ],
+  "library_sha256": "4bbef7e782ac6ef37b758cba7aadf61ca29ad957870e3c5f96e23de5efd44695",
+  "android_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:15/AE3A.240806.043/12960925:userdebug/dev-keys",
+  "evidence": "Original SDK output on Android; no printer connected"
+}
