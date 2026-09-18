@@ -202,3 +202,49 @@ fn image_requires_explicit_buffer_length_and_rejects_missing_input() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn print_help_exposes_job_and_transport_options() {
+    let output = usage::test::command!("rongta", "print", "--help").assert_success();
+    let help = String::from_utf8(output.stdout).unwrap();
+    for flag in [
+        "--copies",
+        "--density",
+        "--speed",
+        "--feed-length",
+        "--threshold",
+        "--adapter",
+        "--pin",
+        "--timeout",
+        "--command-delay-ms",
+        "--packet-delay-ms",
+        "--verbose",
+    ] {
+        assert!(help.contains(flag), "missing {flag}: {help}");
+    }
+}
+
+#[test]
+fn invalid_print_arguments_fail_before_touching_bluetooth() {
+    for (args, expected) in [
+        (vec!["--copies", "0"], "--copies must be"),
+        (vec!["--density", "16"], "--density must be"),
+        (vec!["--timeout", "0"], "--timeout must be"),
+        (vec!["--pin", "01234567890123456"], "--pin must contain"),
+        (vec![], "Cannot open"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rongta"))
+            .args([
+                "print",
+                "AA:BB:CC:DD:EE:FF",
+                "/nonexistent/rongta-label.png",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains(expected), "{error}");
+    }
+}

@@ -18,11 +18,11 @@ Entering the shell does not launch Android or change Bluetooth services.
 ## Rust CLI
 
 The Rust project lives in `rongta-rs/`. It implements the R22 handshake and
-information query over Classic Bluetooth SPP, plus offline protocol tools.
-Framing and handshake behavior are checked against the original Android SDK
-and simulated printer streams. Image data can also be generated offline using SDK-compatible raster conversion
-and Huffman compression. The Bluetooth connection and physical printing still
-need hardware testing; sending print jobs is not implemented yet. With the dev shell loaded:
+information query and image job submission over Classic Bluetooth SPP, plus
+offline protocol tools. Framing, handshake, image encoding, and print controls
+are checked against the original Android SDK and simulated printer streams.
+The Bluetooth connection and physical printing still need hardware testing.
+With the dev shell loaded:
 
 ```sh
 cd rongta-rs
@@ -40,7 +40,7 @@ Dependency choices and protocol boundaries are recorded in
 [notes/rust-cli.md](notes/rust-cli.md). `rongta-rs/Cargo.lock` pins the resolved
 dependencies.
 The native transport uses host BlueZ. Stop the emulator bridge and restore host
-Bluetooth as described below before running `info`. Find the printer's MAC with
+Bluetooth as described below before running `info` or `print`. Find the printer's MAC with
 `bluetoothctl scan on` (then `scan off`). From `rongta-rs/`:
 
 ```sh
@@ -79,6 +79,43 @@ fixtures using the original library in Android. The
 [framing notes](notes/framing.md) document the layout and CRC;
 [handshake notes](notes/handshake.md) cover the proof, reply layouts, and evidence
 limits.
+
+## Send a print job
+
+With host Bluetooth restored and the dev shell loaded, from `rongta-rs/`:
+
+```sh
+# Small 128×64-dot asymmetric pattern for the first hardware test:
+cargo run -- print AA:BB:CC:DD:EE:FF examples/first-label.png --verbose \
+  > print-result.json 2> print.log
+# Your own label, with optional copies and density (0 light, 8 normal, 15 dark):
+cargo run -- print AA:BB:CC:DD:EE:FF label.png --copies 2 --density 8
+```
+
+`print` handshakes on the same connection it uses for the job. It takes the
+buffer length and head width from the printer, checks status, announces the
+app connection, sets print mode and density, then sends the compressed image.
+Pixels are dots: it centers narrower images on a full-width white canvas and
+rejects wider images rather than resizing. Transparency is composited on white;
+`--threshold` defaults to 208. Centering includes any byte-alignment padding.
+Use a canvas matching your label and printer geometry for precise placement.
+
+The default is one copy, normal density, no speed override, and no extra feed.
+`--speed N` passes a raw SDK speed value; `--feed-length N` feeds forward after
+each copy. Feed units still need hardware verification. Command batches use the
+app's 100 ms delay (`--command-delay-ms`); `--packet-delay-ms` optionally adds
+spacing between image packets. Status is polled every 500 ms after each copy.
+Connection/pairing options match `info`; `--timeout` defaults to 120 seconds,
+applied separately to connection, handshake, and submission/waiting for all copies.
+
+JSON success means `sent_printer_idle`: the bytes were written and a subsequent
+status query reported idle. `observed_printing` records whether bit 7 was ever
+seen, which may be false for short jobs. This does not prove the label printed
+correctly. Fault status, rejected commands, malformed replies, disconnects, and
+timeouts fail without automatically retrying. A failed or interrupted job can
+have been partially sent; check the printer before retrying. Unsolicited status
+notification framing remains unresolved, so this version uses explicit queries.
+See [print-job notes](notes/printing.md) for evidence and remaining hardware checks.
 
 ## Encode image data offline
 
