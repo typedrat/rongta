@@ -23,6 +23,7 @@ enum Commands {
     Discovery(Discovery),
     Decode(Decode),
     Info(Info),
+    Image(Image),
 }
 
 /// Write the two R22 discovery packets as binary to stdout
@@ -64,6 +65,23 @@ struct Info {
     verbose: bool,
 }
 
+/// Encode a PNG/PNM as an R22 compressed image job, writing binary to stdout
+///
+/// Offline only. Input pixels are printer dots, with no resizing; alpha is
+/// composited onto white and rows are padded to eight dots. This emits image
+/// start/tree/data/end packets, without copies, heat, feed, or transport pacing.
+#[derive(Args)]
+struct Image {
+    /// Source PNG or PNM image
+    input: PathBuf,
+    /// Printer pBuffLength from info output; not the decoder's body-length limit
+    #[usage(long)]
+    buffer_length: u16,
+    /// SDK black/white threshold (inclusive)
+    #[usage(long, default = "208")]
+    threshold: u8,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -71,6 +89,33 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Discovery(_) => {
             for frame in Handshake::new([0; 8]).discovery() {
+                output.write_all(&frame.encode()?)?;
+            }
+        }
+        Commands::Image(args) => {
+            ensure!(
+                args.buffer_length >= 64,
+                "--buffer-length must be at least 64 bytes"
+            );
+            let mut reader = image::ImageReader::open(&args.input)
+                .with_context(|| format!("Cannot open {}", args.input.display()))?
+                .with_guessed_format()?;
+            let mut limits = image::Limits::default();
+            limits.max_alloc = Some(64 * 1024 * 1024);
+            reader.limits(limits);
+            let source = reader
+                .decode()
+                .context("Decoding PNG/PNM image")?
+                .into_rgba8();
+            let mut canvas = image::RgbaImage::from_pixel(
+                source.width(),
+                source.height(),
+                image::Rgba([255; 4]),
+            );
+            image::imageops::overlay(&mut canvas, &source, 0, 0);
+            let raster = rongta::raster::Raster::from_rgba(&canvas, args.threshold)?;
+            let job = rongta::image_data::encode_image(&raster, args.buffer_length)?;
+            for frame in job {
                 output.write_all(&frame.encode()?)?;
             }
         }

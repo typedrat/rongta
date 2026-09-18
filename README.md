@@ -20,8 +20,9 @@ Entering the shell does not launch Android or change Bluetooth services.
 The Rust project lives in `rongta-rs/`. It implements the R22 handshake and
 information query over Classic Bluetooth SPP, plus offline protocol tools.
 Framing and handshake behavior are checked against the original Android SDK
-and simulated printer streams. The Bluetooth connection still needs its first
-hardware test; printing is not implemented yet. With the dev shell loaded:
+and simulated printer streams. Image data can also be generated offline using SDK-compatible raster conversion
+and Huffman compression. The Bluetooth connection and physical printing still
+need hardware testing; sending print jobs is not implemented yet. With the dev shell loaded:
 
 ```sh
 cd rongta-rs
@@ -78,6 +79,28 @@ fixtures using the original library in Android. The
 [framing notes](notes/framing.md) document the layout and CRC;
 [handshake notes](notes/handshake.md) cover the proof, reply layouts, and evidence
 limits.
+
+## Encode image data offline
+
+With the dev shell loaded, from `rongta-rs/`:
+
+```sh
+# Replace 4096 with protocol.buffer_length from your printer's info output.
+cargo run -- image label.png --buffer-length 4096 > /tmp/rongta-image.bin
+cargo run -- decode /tmp/rongta-image.bin --max-body-len 65535
+```
+
+PNG and PNM are supported. Pixels are printer dots: there is no automatic
+resizing. Prepare the canvas to the width reported by `info`; transparency is
+composited onto white and partial rows are padded to eight dots. The default
+black/white threshold is 208 (`--threshold` overrides it). Buffer length is
+required explicitly; the example value is not a measured R22 capability.
+
+Output contains image start, Huffman trees, compressed data, and image end.
+It does not connect to Bluetooth or include copies, heat, feed, or pacing.
+The offline decoder override allows tree frames larger than its default receive
+limit. [Image-data notes](notes/image-data.md) describe the format, SDK reference
+cases, and rejected native edge cases.
 
 ## Emulator commands
 

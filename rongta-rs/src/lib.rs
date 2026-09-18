@@ -4,3 +4,5 @@ pub mod handshake;
 pub mod protocol;
 
 pub mod raster;
+
+pub mod image_data;

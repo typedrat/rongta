@@ -51,7 +51,8 @@ into `encryptionKeyStr`.
 16-byte constant, then produces a 16-character hexadecimal result from
 digest bytes 4 through 11. This is a device-data-dependent handshake; we
 can reconstruct the algorithm without possessing this printer's serial.
-The constant and challenge verification have not yet been fully documented.
+The constant and challenge verification are now documented in
+[handshake.md](handshake.md), with native reference cases and a Rust `info` command.
 
 For Rongta, `isFirstStepDone` waits for protocol and serial success, provided
 later handshake stages have not failed. The decoder synthesizes
@@ -106,7 +107,8 @@ getImagePackageData(pixels, width, height, 0, algorithm, 0, 0, 0)
 For protocol 28, `getPrintImageData` selects compressed output; the
 alternative `getAllImageData` branch is selected for Xiaomi/RuiDa.
 The compression functions expose Huffman-tree structures and an encoder;
-their exact bitstream format has not yet been reconstructed.
+their tree layout, tie-breaking, bitstream, and packet rules now match native
+SDK fixtures in Rust. See [image-data.md](image-data.md).
 
 | Job stage | Command pair |
 | --- | --- |
@@ -137,5 +139,6 @@ configured inter-command delay. There is no BLE MTU/chunking step in this path.
 
 Completed before arrival: reproduce the cleartext frame encoder and CRC and
 generate reference packets by calling the original SDK offline. Next, map
-the challenge and Huffman encoding. Actual printer replies are needed to
-validate device behavior, not to identify which code implements it.
+the surrounding print setup, feed, and status handling. Handshake and Huffman
+encoding now have native reference tests. Actual printer exchanges are still
+needed to validate device behavior.

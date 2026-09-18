@@ -125,3 +125,80 @@ fn invalid_info_arguments_fail_before_touching_bluetooth() {
         assert!(message.contains(expected), "{message}");
     }
 }
+
+#[test]
+fn image_command_emits_sdk_job_from_pnm_without_status_text() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/sdk/image.json")).unwrap();
+    let fixture = corpus["raster_vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "asymmetric-bits")
+        .unwrap();
+    let path = std::env::temp_dir().join(format!("rongta-image-{}.pnm", std::process::id()));
+    let argb = hex::decode(fixture["argb_hex"].as_str().unwrap()).unwrap();
+    let mut pnm = b"P6\n16 8\n255\n".to_vec();
+    for pixel in argb.as_chunks::<4>().0 {
+        pnm.extend_from_slice(&pixel[1..]);
+    }
+    std::fs::write(&path, pnm).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rongta"))
+        .arg("image")
+        .arg(&path)
+        .args(["--buffer-length", "4096"])
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert_eq!(hex::encode(output.stdout), fixture["wire_hex"]);
+}
+
+#[test]
+fn transparent_png_is_composited_on_white_for_the_image_command() {
+    let path = std::env::temp_dir().join(format!("rongta-transparent-{}.png", std::process::id()));
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 0, 0]))
+        .save(&path)
+        .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rongta"))
+        .arg("image")
+        .arg(&path)
+        .args(["--buffer-length", "4096"])
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/sdk/image.json")).unwrap();
+    let fixture = corpus["image_vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "white")
+        .unwrap();
+    assert_eq!(hex::encode(output.stdout), fixture["wire_hex"]);
+}
+
+#[test]
+fn image_requires_explicit_buffer_length_and_rejects_missing_input() {
+    for args in [
+        vec!["image", "missing.png"],
+        vec!["image", "missing.png", "--buffer-length", "4096"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rongta"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}
