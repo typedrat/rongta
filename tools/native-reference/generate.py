@@ -60,7 +60,8 @@ def main():
             archive.writestr("assets/print-input.json", json.dumps([
                 dict(name=f"status-{value}", value=value, wire_hex=reply(19, number(1, value)))
                 for value in [0, 128, 1, 2, 0x8080]
-            ] + [dict(name="notify-printing", value=128, wire_hex=reply(18, number(1,128), 0x21))]))
+            ] + [dict(name=f"notify-{header:02x}", value=128, wire_hex=reply(18, number(1,128), header))
+                 for header in [0x01,0x11,0x12,0x20,0x21,0x30,0x31,0x41]]))
         aligned = build / "reference.apk"
         run(build_tools / "zipalign", "-f", "4", apk, aligned)
         # Persist only the debug key so repeated installs use the same signer.

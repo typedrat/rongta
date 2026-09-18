@@ -110,9 +110,100 @@
       ]
     },
     {
-      "name": "notify-printing",
+      "name": "notify-01",
+      "value": 128,
+      "wire_hex": "a31e1c000a00010112050001020080007dc59ef7",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    },
+    {
+      "name": "notify-11",
+      "value": 128,
+      "wire_hex": "a31e1c000a0011011205000102008000954430d0",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    },
+    {
+      "name": "notify-12",
+      "value": 128,
+      "wire_hex": "a31e1c000a001201120500010200800096ff073b",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    },
+    {
+      "name": "notify-20",
+      "value": 128,
+      "wire_hex": "a31e1c000a002001120500010200800093ad0157",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    },
+    {
+      "name": "notify-21",
       "value": 128,
       "wire_hex": "a31e1c000a0021011205000102008000adc6c3b8",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    },
+    {
+      "name": "notify-30",
+      "value": 128,
+      "wire_hex": "a31e1c000a00300112050001020080007b2caf70",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    },
+    {
+      "name": "notify-31",
+      "value": 128,
+      "wire_hex": "a31e1c000a003101120500010200800045476d9f",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": false,
+          "json": "{}"
+        }
+      ]
+    },
+    {
+      "name": "notify-41",
+      "value": 128,
+      "wire_hex": "a31e1c000a0041011205000102008000ddc22469",
       "sdk_events": [
         {
           "superclass": 1,

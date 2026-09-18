@@ -50,3 +50,14 @@ fn dimensions_and_packed_length_are_validated() {
     assert!(Raster::from_rgba(&RgbaImage::new(0, 0), 208).is_err());
     assert!(Raster::new(16, 2, vec![0; 4]).is_ok());
 }
+
+#[test]
+fn centering_preserves_bits_across_byte_boundaries_and_rejects_cropping() {
+    let source = Raster::new(8, 2, vec![0x81, 0x42]).unwrap();
+    let centered = source.centered(16).unwrap();
+    assert_eq!(centered.bytes(), [0x08, 0x10, 0x04, 0x20]);
+    assert_eq!(source.centered(8).unwrap().bytes(), source.bytes());
+    assert!(source.centered(0).is_err());
+    assert!(source.centered(15).is_err());
+    assert!(centered.centered(8).is_err());
+}

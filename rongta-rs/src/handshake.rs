@@ -95,7 +95,7 @@ struct Tlv {
     value: Vec<u8>,
 }
 
-fn tlvs(mut bytes: &[u8]) -> Result<BTreeMap<u8, Vec<u8>>> {
+pub(crate) fn tlvs(mut bytes: &[u8]) -> Result<BTreeMap<u8, Vec<u8>>> {
     let mut fields = BTreeMap::new();
     while !bytes.is_empty() {
         let ((rest, _), tlv) = Tlv::from_bytes((bytes, 0)).context("Malformed TLV")?;
@@ -114,7 +114,7 @@ fn field(fields: &BTreeMap<u8, Vec<u8>>, tag: u8) -> Result<&[u8]> {
         .map(Vec::as_slice)
         .with_context(|| format!("Missing TLV tag {tag}"))
 }
-fn number(fields: &BTreeMap<u8, Vec<u8>>, tag: u8) -> Result<u32> {
+pub(crate) fn number(fields: &BTreeMap<u8, Vec<u8>>, tag: u8) -> Result<u32> {
     let bytes = field(fields, tag)?;
     ensure!(
         (1..=4).contains(&bytes.len()),

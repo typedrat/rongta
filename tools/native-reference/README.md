@@ -72,4 +72,7 @@ The `--suite print` corpus calls the SDK's status, app-connected, print-mode,
 density, speed, and feed builders. It also feeds simulated `01/13` status
 responses and `01/12` notifications through the native decoder. The input
 status bitfield is TLV tag 1; the app's `PrinterStatusPareseUtils.parseStatus`
-assigns its fault/printing bits. These are offline reference observations.
+assigns its fault/printing bits. The queried status replies decode successfully;
+all eight attempted notification headers are rejected by the SDK. Notification
+framing remains unresolved and Rust currently relies on explicit status queries.
+These are offline reference observations.

@@ -61,6 +61,34 @@ impl Raster {
         Self::new(byte_width * 8, height, bytes)
     }
 
+    /// Center the byte-padded source on the printer's full-width white canvas.
+    pub fn centered(&self, width: u32) -> Result<Self> {
+        ensure!(
+            width > 0 && width.is_multiple_of(8) && width / 8 <= u16::MAX as u32,
+            "Invalid printer width {width}"
+        );
+        ensure!(
+            self.width <= width,
+            "Image is {} dots wide; printer supports {width}; resize it before printing",
+            self.width
+        );
+        let length = (width as usize / 8)
+            .checked_mul(self.height as usize)
+            .filter(|length| *length <= 64 * 1024 * 1024)
+            .ok_or_else(|| anyhow::anyhow!("Centered raster exceeds 64 MiB limit"))?;
+        let mut data = vec![0; length];
+        let offset = (width - self.width) / 2;
+        for y in 0..self.height as usize {
+            for x in 0..self.width as usize {
+                if self.bytes[y * self.width as usize / 8 + x / 8] & (0x80 >> (x % 8)) != 0 {
+                    let dst = x + offset as usize;
+                    data[y * width as usize / 8 + dst / 8] |= 0x80 >> (dst % 8);
+                }
+            }
+        }
+        Self::new(width, self.height, data)
+    }
+
     pub fn width(&self) -> u32 {
         self.width
     }
