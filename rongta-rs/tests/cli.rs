@@ -253,7 +253,7 @@ fn invalid_print_arguments_fail_before_touching_bluetooth() {
 fn scan_help_exposes_discovery_options() {
     let output = usage::test::command!("rongta", "scan", "--help").assert_success();
     let help = String::from_utf8(output.stdout).unwrap();
-    for flag in ["--adapter", "--timeout"] {
+    for flag in ["--adapter", "--timeout", "--printers", "--all", "--json"] {
         assert!(help.contains(flag), "missing {flag}: {help}");
     }
 }

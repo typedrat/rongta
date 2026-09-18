@@ -50,17 +50,36 @@ cargo run -- info AA:BB:CC:DD:EE:FF --adapter hci0 --verbose
 cargo run -- info AA:BB:CC:DD:EE:FF --verbose > info.json 2> info.log
 ```
 
-`scan` searches Classic Bluetooth and BLE for 10 seconds by default, then emits
-an address-sorted JSON array. Each device includes `name`, `address`, `rssi`,
-`paired`, `connected`, `spp`, and `known_before_scan`. Progress goes to stderr.
-It does not pair or connect. BlueZ includes cached devices, so a listed address
-is not proof of current proximity; `known_before_scan` identifies entries that
-already existed. Names and RSSI can be null, and `spp` reflects only BlueZ's known
-service UUIDs (null if unavailable). A false or null `spp` does not rule out a
-printer: service discovery may require a connection. Devices are not filtered
-by name or UUID. An empty result is `[]`; adapter/discovery failures return nonzero.
-`--timeout` sets the discovery interval; adapter setup and reading result
-properties can take additional time.
+`scan` searches Classic Bluetooth and BLE for 10 seconds, then shows an
+address-sorted table of likely printers by default. `--printers` is enabled by
+default; `--all` disables the filter. `--json` outputs an array instead of a table:
+
+```sh
+cargo run -- scan                       # likely printers, readable table
+cargo run -- scan --all                 # include all devices
+cargo run -- scan --json                # likely printers as JSON
+cargo run -- scan --all --json          # all devices as JSON
+```
+
+The printer heuristic matches the Bluetooth imaging/printer device class or a
+case-insensitive name containing `RONGTA`, `Printer`, or the token `R22`. The
+class bits follow [Bluetooth Assigned Numbers, section 2.8.2.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Assigned_Numbers/out/en/index-en.html).
+It is not a compatibility check, and generic names or missing classes can hide
+real printers. Use `--all` if your printer is missing. SPP alone is not enough
+to classify a device as a printer.
+
+The table shows address, RSSI in dBm, known SPP support, pairing state, whether
+BlueZ knew the device before scanning, and its name. JSON additionally includes
+`class` and `connected`. Missing properties are null in JSON. Progress goes to
+stderr. Scanning does not pair or connect. BlueZ includes cached devices, so a
+listed address is not proof of current proximity. `known_before_scan` (`KNOWN`
+in the table) identifies entries that already existed. `spp` reflects only
+BlueZ's known service UUIDs: false (`unlisted`) or null (`?`) does not rule out
+SPP, since service discovery may require a connection.
+
+An empty result gives a readable message (or `[]` with `--json`); adapter and
+discovery failures return nonzero. `--timeout` sets the discovery interval;
+adapter setup and reading result properties can take additional time.
 
 `info` discovers the selected MAC if BlueZ does not know it yet, pairs if needed,
 and resolves the SPP channel through BlueZ/SDP. Pairing uses your existing BlueZ

@@ -28,12 +28,18 @@ enum Commands {
     Print(Print),
 }
 
-/// Discover Bluetooth devices and return their names and addresses as JSON
+/// Discover likely printers and show a readable device table
 ///
 /// Searches Classic and LE without pairing. Includes BlueZ's cached devices,
-/// which may be out of range. SPP service UUIDs may be unknown until connected.
+/// which may be out of range. Use --all for devices missed by the printer heuristic.
 #[derive(Args)]
 struct Scan {
+    /// Show likely printers only (default); --all disables name/device-class filtering
+    #[usage(long, negate = "--all", default = "true")]
+    printers: bool,
+    /// Output a JSON array instead of a readable table
+    #[usage(long)]
+    json: bool,
     /// Host BlueZ adapter; defaults to the system's default adapter
     #[usage(long)]
     adapter: Option<String>,
@@ -157,8 +163,7 @@ async fn main() -> Result<()> {
             let devices =
                 rongta::bluetooth::scan(args.adapter.as_deref(), Duration::from_secs(args.timeout))
                     .await?;
-            serde_json::to_writer_pretty(&mut output, &devices)?;
-            writeln!(output)?;
+            write_scan(&mut output, &devices, args.printers, args.json)?;
         }
         Commands::Discovery(_) => {
             for frame in Handshake::new([0; 8]).discovery() {
@@ -255,6 +260,68 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn write_scan(
+    output: &mut impl Write,
+    devices: &[rongta::bluetooth::ScanDevice],
+    printers: bool,
+    json: bool,
+) -> Result<()> {
+    let devices: Vec<_> = devices
+        .iter()
+        .filter(|device| !printers || device.is_printer_candidate())
+        .collect();
+    if json {
+        serde_json::to_writer_pretty(&mut *output, &devices)?;
+        writeln!(output)?;
+        return Ok(());
+    }
+    if devices.is_empty() {
+        writeln!(
+            output,
+            "{}",
+            if printers {
+                "No likely printers found. Try --all to include devices with generic names or missing device classes."
+            } else {
+                "No Bluetooth devices found."
+            }
+        )?;
+        return Ok(());
+    }
+    writeln!(
+        output,
+        "{:<17}  {:>5}  {:<7}  {:<6}  {:<5}  NAME",
+        "ADDRESS", "RSSI", "SPP", "PAIRED", "KNOWN"
+    )?;
+    for device in devices {
+        writeln!(
+            output,
+            "{:<17}  {:>5}  {:<7}  {:<6}  {:<5}  {}",
+            device.address.to_string(),
+            device
+                .rssi
+                .map(|rssi| rssi.to_string())
+                .unwrap_or_else(|| "-".into()),
+            match device.spp {
+                Some(true) => "yes",
+                Some(false) => "unlisted",
+                None => "?",
+            },
+            if device.paired { "yes" } else { "no" },
+            if device.known_before_scan {
+                "yes"
+            } else {
+                "no"
+            },
+            device.name.as_deref().unwrap_or("(unknown)").escape_debug(),
+        )?;
+    }
+    writeln!(
+        output,
+        "\nRSSI in dBm; KNOWN means cached before scanning, not confirmed nearby. SPP may be unresolved."
+    )?;
+    Ok(())
+}
+
 fn validate_connection(address: &str, timeout: u64, pin: Option<&str>) -> Result<bluer::Address> {
     let address = address
         .parse()
@@ -338,6 +405,104 @@ fn decode_stream(mut input: impl Read, output: &mut impl Write, max_body_len: u1
         }
         if count == 0 {
             return Ok(());
+        }
+    }
+}
+
+#[cfg(test)]
+mod scan_output_tests {
+    use super::*;
+    use rongta::bluetooth::ScanDevice;
+
+    fn device(name: Option<&str>, class: Option<u32>) -> ScanDevice {
+        ScanDevice {
+            address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+            name: name.map(str::to_owned),
+            class,
+            rssi: None,
+            paired: false,
+            connected: false,
+            spp: Some(true),
+            known_before_scan: true,
+        }
+    }
+
+    #[test]
+    fn scan_defaults_and_overrides() {
+        for (args, printers, json) in [
+            (vec!["scan"], true, false),
+            (vec!["scan", "--json"], true, true),
+            (vec!["scan", "--all", "--json"], false, true),
+            (vec!["scan", "--all", "--printers"], true, false),
+        ] {
+            let args: Vec<_> = args.iter().map(std::ffi::OsStr::new).collect();
+            let Commands::Scan(scan) = Cli::parse_from(&args).unwrap().command else {
+                panic!()
+            };
+            assert_eq!((scan.printers, scan.json), (printers, json));
+        }
+    }
+
+    #[test]
+    fn printer_heuristic_accepts_class_or_names_but_not_spp_alone() {
+        for (name, class, expected) in [
+            (None, Some(0x40680), true), // imaging printer, rendering service bit
+            (None, Some(0x6c0), true),   // combined printer/scanner
+            (Some("Camera"), Some(0x620), false),
+            (Some("Headset"), Some(0x480), false), // same minor bit, wrong major class
+            (Some("RONGTA_123"), None, true),
+            (Some("r22-123"), None, true),
+            (Some("Label Printer"), None, true),
+            (Some("CAR220"), None, false),
+            (Some("Serial adapter"), None, false),
+            (None, None, false),
+        ] {
+            assert_eq!(
+                device(name, class).is_printer_candidate(),
+                expected,
+                "{name:?} {class:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_filter_and_human_output_handle_unknowns_and_escape_names() {
+        let devices = [
+            device(Some("R22\n\x1b[31m"), None),
+            device(Some("Headphones"), None),
+        ];
+        let mut out = vec![];
+        write_scan(&mut out, &devices, true, true).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(json.as_array().unwrap().len(), 1);
+        assert_eq!(json[0]["address"], "AA:BB:CC:DD:EE:FF");
+        assert!(json[0]["rssi"].is_null());
+        out.clear();
+        write_scan(&mut out, &devices, false, true).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Vec<serde_json::Value>>(&out)
+                .unwrap()
+                .len(),
+            2
+        );
+        out.clear();
+        write_scan(&mut out, &devices, true, false).unwrap();
+        let table = String::from_utf8(out).unwrap();
+        assert!(table.contains("ADDRESS") && table.contains("AA:BB:CC:DD:EE:FF"));
+        assert!(!table.contains("Headphones") && !table.contains('\x1b'));
+        assert!(table.contains(r"R22\n"));
+    }
+
+    #[test]
+    fn empty_output_is_useful_text_or_valid_json() {
+        for json in [false, true] {
+            let mut out = vec![];
+            write_scan(&mut out, &[], true, json).unwrap();
+            if json {
+                assert_eq!(out, b"[]\n");
+            } else {
+                assert!(String::from_utf8(out).unwrap().contains("Try --all"));
+            }
         }
     }
 }

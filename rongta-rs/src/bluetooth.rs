@@ -160,11 +160,36 @@ pub struct ScanDevice {
     pub address: Address,
     pub name: Option<String>,
     pub rssi: Option<i16>,
+    pub class: Option<u32>,
     pub paired: bool,
     pub connected: bool,
     /// None means service UUIDs are unavailable; false is not proof of no SPP.
     pub spp: Option<bool>,
     pub known_before_scan: bool,
+}
+
+impl ScanDevice {
+    /// A hint, not a protocol/compatibility check. SPP alone is not printer-specific.
+    pub fn is_printer_candidate(&self) -> bool {
+        // Bluetooth Assigned Numbers 2.8.2.6: imaging major class, printer bit.
+        // https://www.bluetooth.com/specifications/assigned-numbers/
+        if self
+            .class
+            .is_some_and(|class| class & 0x1f00 == 0x0600 && class & 0x80 != 0)
+        {
+            return true;
+        }
+        let name = self
+            .name
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        name.contains("rongta")
+            || name.contains("printer")
+            || name
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|word| word == "r22")
+    }
 }
 
 /// Discover on both supported transports without pairing or connecting.
@@ -216,13 +241,15 @@ pub async fn scan(adapter_name: Option<&str>, duration: Duration) -> Result<Vec<
                 device.rssi(),
                 device.uuids(),
                 device.is_paired(),
-                device.is_connected()
+                device.is_connected(),
+                device.class()
             );
             match result {
-                Ok((name, rssi, uuids, paired, connected)) => Ok(Some(ScanDevice {
+                Ok((name, rssi, uuids, paired, connected, class)) => Ok(Some(ScanDevice {
                     address,
                     name,
                     rssi,
+                    class,
                     paired,
                     connected,
                     spp: uuids.map(|uuids| uuids.contains(&SPP_UUID)),
