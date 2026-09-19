@@ -1,5 +1,7 @@
 # R22 print-job submission
 
+The first successful R22 hardware test is documented in [hardware.md](hardware.md).
+
 The implementation uses one BlueR SPP connection and one persistent frame decoder
 for handshake, setup, image writes, and status queries. Buffered bytes survive
 phase changes. During writes it drains replies concurrently, so a received fault
@@ -29,11 +31,13 @@ and optionally appends forward feed. Defaults are one copy, no automatic speed
 selection, and zero extra feed. Physical speed/feed units remain unverified.
 `SPPDriver.write(List)` waits `RTSDKConfig.cmdIntervalTime` (100 ms) before each
 list item and writes the image byte array as one batch. Rust keeps that command
-delay and permits additional inter-packet pacing for experiments.
+delay and submits a complete image as one buffer. Additional inter-packet pacing
+is available for diagnostics but produced incomplete output on the tested R22.
 
 The image start/tree/data/end sequence is documented in [image-data.md](image-data.md).
 The printer's reported head width and buffer length configure the encoder;
-fixture values are simulated and are not measured R22 capabilities. Rust centers
+fixture values are simulated; the first physical R22 reports 384 dots and a
+2050-byte buffer. Rust centers
 a narrower, byte-padded raster on a full-width white canvas, refuses cropping,
 and caps the expanded raster at 64 MiB.
 
@@ -56,17 +60,18 @@ print controls fail immediately. Rust polls after each copy until idle; the
 whole submission/wait sequence has a fixed deadline. It does not assume every
 image packet receives an acknowledgment.
 
-The app also handles `01/12` notifications, but the native decoder rejected all
-eight tested message-type/subtype combinations with our simulated TLV payload.
-Their framing is unresolved; Rust ignores them rather than claiming validated
-notification support. Consequently fault detection currently depends on valid
-`01/13` replies, not a guaranteed asynchronous printer notification.
+The hardware sends `01/12` notifications using message type 1, subtype 0
+(header `10`). Its status is a four-byte tag-1 TLV; tag 2 contains a one-byte
+battery-power state. The original SDK successfully decodes the captured shapes.
+The earlier eight rejected header probes remain as negative fixtures.
 
-There is no verified job identifier or paper-completion event. The report
-`sent_printer_idle` means local writes completed and a subsequent status reply
-was idle. An initial idle reply could precede the printer starting, and a short
-job may finish between polls. `observed_printing` exposes that distinction;
-hardware captures must establish stronger completion semantics if needed.
+There is no verified job identifier. Each copy must produce an observed printing
+state (queried or notified), followed by an idle status query. This keeps the
+connection open through the printer's delayed start; initial idle responses no
+longer count as completion. A short cycle can be detected through notifications
+even if queries miss its busy state. A cycle that is never observed times out;
+the CLI does not retry automatically. `sent_printer_idle` confirms this state
+cycle, not that the image is visually correct.
 
 ## Verification and first hardware test
 

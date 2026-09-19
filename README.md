@@ -21,7 +21,8 @@ The Rust project lives in `rongta-rs/`. It implements the R22 handshake and
 information query and image job submission over Classic Bluetooth SPP, plus
 offline protocol tools. Framing, handshake, image encoding, and print controls
 are checked against the original Android SDK and simulated printer streams.
-The Bluetooth connection and physical printing still need hardware testing.
+The first R22 hardware test verified pairing, handshake, and the small test
+label. Transfer and completion details are in [hardware notes](notes/hardware.md).
 With the dev shell loaded:
 
 ```sh
@@ -84,8 +85,7 @@ adapter setup and reading result properties can take additional time.
 `info` discovers the selected MAC if BlueZ does not know it yet, pairs if needed,
 and resolves the SPP channel through BlueZ/SDP. Pairing uses your existing BlueZ
 agent. If necessary, pair interactively with `bluetoothctl` first, or add
-`--pin YOUR_PRINTER_PIN` for legacy PIN pairing. The printer's PIN is not yet
-known; none is assumed. No root privileges are normally required when your user
+`--pin YOUR_PRINTER_PIN` for legacy PIN pairing. The tested R22 paired through BlueZ without an explicit PIN; none is assumed. No root privileges are normally required when your user
 has BlueZ access. The CLI does not change adapter power or host services.
 
 Output is JSON containing protocol parameters, serials, device/firmware/hardware
@@ -135,19 +135,22 @@ Use a canvas matching your label and printer geometry for precise placement.
 The default is one copy, normal density, no speed override, and no extra feed.
 `--speed N` passes a raw SDK speed value; `--feed-length N` feeds forward after
 each copy. Feed units still need hardware verification. Command batches use the
-app's 100 ms delay (`--command-delay-ms`); `--packet-delay-ms` optionally adds
-spacing between image packets. Status is polled every 500 ms after each copy.
+app's 100 ms delay (`--command-delay-ms`). By default, each complete image is
+submitted as one buffer, matching the Android app. `--packet-delay-ms` forces
+separate frame writes for diagnostics; 100 ms spacing produced incomplete output
+on the tested R22, so leave it at zero. Status is polled every 500 ms and
+unsolicited status notifications are processed throughout transmission.
 Connection/pairing options match `info`; `--timeout` defaults to 120 seconds,
 applied separately to connection, handshake, and submission/waiting for all copies.
 
-JSON success means `sent_printer_idle`: the bytes were written and a subsequent
-status query reported idle. `observed_printing` records whether bit 7 was ever
-seen, which may be false for short jobs. This does not prove the label printed
-correctly. Fault status, rejected commands, malformed replies, disconnects, and
-timeouts fail without automatically retrying. A failed or interrupted job can
-have been partially sent; check the printer before retrying. Unsolicited status
-notification framing remains unresolved, so this version uses explicit queries.
-See [print-job notes](notes/printing.md) for evidence and remaining hardware checks.
+JSON success means `sent_printer_idle`: the bytes were written, printing was
+observed through a query or notification, and a later status reply was idle.
+Each copy must have its own printing-to-idle cycle. Initial idle replies are
+not completion: the tested printer starts after a delay. The report confirms
+printer state, not image quality. Missing completion, faults, rejected commands,
+malformed replies, disconnects, and timeouts fail without automatically retrying.
+A failed or interrupted job can have been partially sent; check the printer
+before retrying. See [print-job notes](notes/printing.md) for protocol details.
 
 ## Encode image data offline
 

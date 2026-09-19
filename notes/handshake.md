@@ -4,7 +4,8 @@ Evidence: ARM64 SDK SHA-256
 `4bbef7e782ac6ef37b758cba7aadf61ca29ad957870e3c5f96e23de5efd44695`,
 RONGTA 3.1.6 (1028), ODM 28. Ghidra addresses below include its `0x100000`
 image base. The Android harness executes the original library against simulated
-printer replies. No hardware exchange has been captured yet.
+printer replies. The first physical R22 completed this handshake without changes;
+measured values and logs are described in [hardware.md](hardware.md).
 
 ## Exchange
 
