@@ -138,17 +138,32 @@ async fn write_frames(
         tokio::time::sleep(delay).await;
     }
     let mut count = 0;
+    let mut batch = Vec::new();
     for (i, frame) in frames.iter().enumerate() {
-        if i > 0 && !packet_delay.is_zero() {
-            tokio::time::sleep(packet_delay).await;
-        }
         let wire = frame.encode()?;
-        tracing::debug!(direction="tx",bytes=%hex::encode(&wire),"RFCOMM bytes submitted");
+        if packet_delay.is_zero() {
+            batch.extend(wire);
+        } else {
+            if i > 0 {
+                tokio::time::sleep(packet_delay).await;
+            }
+            tracing::debug!(direction="tx",bytes=%hex::encode(&wire),"RFCOMM bytes submitted");
+            writer
+                .write_all(&wire)
+                .await
+                .context("Writing printer commands")?;
+            count += wire.len();
+        }
+    }
+    if !batch.is_empty() {
+        // Android submits each command-list item (including a complete image) in
+        // one write. Frame-by-frame writes produced incomplete output on the R22.
+        tracing::debug!(direction="tx",bytes=%hex::encode(&batch),"RFCOMM batch submitted");
         writer
-            .write_all(&wire)
+            .write_all(&batch)
             .await
-            .context("Writing printer commands")?;
-        count += wire.len();
+            .context("Writing printer command batch")?;
+        count += batch.len();
     }
     writer.flush().await.context("Flushing printer commands")?;
     Ok(count)
@@ -160,4 +175,48 @@ pub async fn query_info<S: AsyncRead + AsyncWrite + Unpin>(
     options: Options,
 ) -> Result<PrinterInfo> {
     Session::new(stream).handshake(nonce, options).await
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+    use std::{
+        pin::Pin,
+        task::{Context as TaskContext, Poll},
+    };
+
+    #[derive(Default)]
+    struct Writes(Vec<Vec<u8>>);
+    impl AsyncWrite for Writes {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut TaskContext<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            self.0.push(bytes.to_vec());
+            Poll::Ready(Ok(bytes.len()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(
+            self: Pin<&mut Self>,
+            _: &mut TaskContext<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn unpaced_job_is_submitted_as_one_buffer_like_android() {
+        let raster = crate::raster::Raster::new(384, 64, vec![0; 48 * 64]).unwrap();
+        let frames = crate::image_data::encode_image(&raster, 2050).unwrap();
+        let expected: Vec<u8> = frames.iter().flat_map(|f| f.encode().unwrap()).collect();
+        let mut writer = Writes::default();
+        let count = write_frames(&mut writer, &frames, Duration::ZERO, Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(count, expected.len());
+        assert_eq!(writer.0, vec![expected]);
+    }
 }

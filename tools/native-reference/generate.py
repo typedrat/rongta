@@ -61,7 +61,11 @@ def main():
                 dict(name=f"status-{value}", value=value, wire_hex=reply(19, number(1, value)))
                 for value in [0, 128, 1, 2, 0x8080]
             ] + [dict(name=f"notify-{header:02x}", value=128, wire_hex=reply(18, number(1,128), header))
-                 for header in [0x01,0x11,0x12,0x20,0x21,0x30,0x31,0x41]]))
+                 for header in [0x01,0x11,0x12,0x20,0x21,0x30,0x31,0x41]] + [
+                dict(name=f"hardware-notify-{value}", value=value,
+                     wire_hex=reply(18, bytes([1,4,0])+value.to_bytes(4,"little")+bytes([2,1,0,0]), 0x10))
+                for value in [0,128]
+            ]))
         aligned = build / "reference.apk"
         run(build_tools / "zipalign", "-f", "4", apk, aligned)
         # Persist only the debug key so repeated installs use the same signer.

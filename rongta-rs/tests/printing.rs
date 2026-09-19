@@ -154,6 +154,8 @@ async fn full_handshake_then_two_copies_feed_and_busy_to_idle() {
             expect(&mut printer, &image_job()).await;
             expect(&mut printer, &wire("feed-256")).await;
             expect(&mut printer, &wire("status")).await;
+            printer.write_all(&wire("status-0")).await.unwrap();
+            expect(&mut printer, &wire("status")).await;
             printer.write_all(&wire("status-128")).await.unwrap();
             expect(&mut printer, &wire("status")).await;
             printer.write_all(&wire("status-0")).await.unwrap();
@@ -228,7 +230,9 @@ async fn fault_interrupts_a_blocked_image_write() {
     let server = tokio::spawn(async move {
         setup(&mut printer).await;
         expect(&mut printer, &image_job()[..15]).await;
-        printer.write_all(&wire("status-2")).await.unwrap();
+        let mut fault = frame(&wire("hardware-notify-0"));
+        fault.payload[3] = 2; // out of paper, with the hardware notification header
+        printer.write_all(&fault.encode().unwrap()).await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
     });
     let error = Session::new(host)
@@ -345,5 +349,30 @@ async fn missing_final_status_is_not_reported_as_success() {
         .await
         .unwrap_err();
     assert!(format!("{error:#}").contains("Timed out"));
+    server.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn initial_idle_is_not_completion_before_printing_starts() {
+    let (host, mut printer) = tokio::io::duplex(4096);
+    let server = tokio::spawn(async move {
+        setup(&mut printer).await;
+        expect(&mut printer, &image_job()).await;
+        expect(&mut printer, &wire("status")).await;
+        printer.write_all(&wire("status-0")).await.unwrap(); // motor hasn't started yet
+        expect(&mut printer, &wire("status")).await;
+        // Hardware notification can observe a short job missed by polling.
+        let notification =
+            hex::decode("a31e1c0010001001120b000104008000000002010000915ae3de").unwrap();
+        printer.write_all(&notification).await.unwrap();
+        printer.write_all(&wire("status-0")).await.unwrap();
+        let mut tail = vec![];
+        printer.read_to_end(&mut tail).await.unwrap();
+        assert!(tail.is_empty());
+    });
+    let mut session = Session::new(host);
+    let report = session.print(&info(), &raster(), options()).await.unwrap();
+    assert!(report.observed_printing);
+    drop(session);
     server.await.unwrap();
 }

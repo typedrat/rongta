@@ -212,6 +212,32 @@
           "json": "{}"
         }
       ]
+    },
+    {
+      "name": "hardware-notify-0",
+      "value": 0,
+      "wire_hex": "a31e1c0010001001120b0001040000000000020100004bdfd88d",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": true,
+          "json": "{\n\t\"printStatus\":\t\"0\",\n\t\"batteryPowerStatus\":\t\"0\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "hardware-notify-128",
+      "value": 128,
+      "wire_hex": "a31e1c0010001001120b000104008000000002010000915ae3de",
+      "sdk_events": [
+        {
+          "superclass": 1,
+          "subclass": 18,
+          "success": true,
+          "json": "{\n\t\"printStatus\":\t\"128\",\n\t\"batteryPowerStatus\":\t\"0\"\n}"
+        }
+      ]
     }
   ],
   "library_sha256": "4bbef7e782ac6ef37b758cba7aadf61ca29ad957870e3c5f96e23de5efd44695",

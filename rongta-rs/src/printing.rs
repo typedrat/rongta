@@ -30,11 +30,11 @@ pub struct PrinterStatus {
 }
 impl PrinterStatus {
     pub fn from_frame(frame: &Frame) -> Result<Option<Self>> {
-        if frame.superclass != 1
-            || frame.subclass != 0x13
-            || frame.message_type != 2
-            || frame.sub_message_type != 1
-        {
+        let is_query =
+            frame.subclass == 0x13 && frame.message_type == 2 && frame.sub_message_type == 1;
+        let is_notification =
+            frame.subclass == 0x12 && frame.message_type == 1 && frame.sub_message_type == 0;
+        if frame.superclass != 1 || !(is_query || is_notification) {
             return Ok(None);
         }
         let raw = number(&tlvs(&frame.payload)?, 1).context("Invalid printer status")?;
@@ -113,6 +113,7 @@ pub struct PrintReport {
 #[derive(Default)]
 struct Monitor {
     query: Option<PrinterStatus>,
+    latest: Option<PrinterStatus>,
     observed_printing: bool,
 }
 impl Monitor {
@@ -139,6 +140,7 @@ impl Monitor {
                 status.raw
             );
             self.observed_printing |= status.printing;
+            self.latest = Some(status.clone());
             if frame.subclass == 0x13 {
                 self.query = Some(status);
             }
@@ -149,7 +151,7 @@ impl Monitor {
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
     /// Uses the same connection as handshake. No automatic retry is safe after
-    /// transmission starts; success means bytes sent and a subsequent idle reply.
+    /// transmission starts; success requires observing printing and then a subsequent idle reply.
     pub async fn print(
         &mut self,
         info: &PrinterInfo,
@@ -170,7 +172,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         let raster = source.centered(info.model.width_dots)?;
         let image = encode_image(&raster, buffer)?; // validate everything before any print command
         tokio::time::timeout(options.timeout,self.print_inner(&raster,&image,&options)).await
-            .context("Timed out submitting/waiting for print job; it may be partially sent; no automatic retry")?
+            .context("Timed out submitting/waiting for print job; printing-to-idle completion was not confirmed; it may be partially sent; no automatic retry")?
     }
     async fn status(&mut self, m: &mut Monitor, delay: Duration) -> Result<PrinterStatus> {
         m.query = None;
@@ -180,7 +182,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         .await?;
         loop {
             if let Some(status) = m.query.take() {
-                return Ok(status);
+                return Ok(m.latest.clone().unwrap_or(status));
             }
             m.accept(self.next().await?)?;
         }
@@ -211,6 +213,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         }
         let mut final_status = preflight;
         for copy in 1..=o.copies {
+            monitor.observed_printing = false; // Each copy needs its own start/completion cycle.
             tracing::info!(copy, copies = o.copies, "Sending image job");
             if let Some(speed) = o.speed {
                 bytes_sent += self
@@ -242,7 +245,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
             loop {
                 final_status = self.status(&mut monitor, o.poll_interval).await?;
                 bytes_sent += 15;
-                if !final_status.printing {
+                if monitor.observed_printing && !final_status.printing {
                     break;
                 }
             }

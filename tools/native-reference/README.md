@@ -73,6 +73,8 @@ density, speed, and feed builders. It also feeds simulated `01/13` status
 responses and `01/12` notifications through the native decoder. The input
 status bitfield is TLV tag 1; the app's `PrinterStatusPareseUtils.parseStatus`
 assigns its fault/printing bits. The queried status replies decode successfully;
-all eight attempted notification headers are rejected by the SDK. Notification
-framing remains unresolved and Rust currently relies on explicit status queries.
-These are offline reference observations.
+all eight initially attempted notification headers are rejected by the SDK.
+Hardware later revealed header `10` (type 1, subtype 0) for `01/12`, with a
+four-byte status TLV and a one-byte battery-state TLV. The two `hardware-notify-*`
+vectors reproduce observed idle/printing notifications and decode successfully
+in the original SDK. Rust now handles both notifications and queried replies.
