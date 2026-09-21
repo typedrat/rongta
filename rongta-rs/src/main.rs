@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, ensure};
 use bytes::BytesMut;
+use rongta::configuration::{Media, Model, Storage};
 use rongta::{bluetooth::Connection, client, handshake::Handshake, protocol::FrameCodec};
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -7,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio_util::codec::Decoder;
 use usage::{Args, Cli, Subcommands};
+mod settings_ui;
 
 /// Experimental Rongta R22 printer protocol tools
 ///
@@ -14,18 +16,107 @@ use usage::{Args, Cli, Subcommands};
 #[derive(Cli)]
 #[usage(bin = "rongta", version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
+    /// TOML configuration override file (or RONGTA_CONFIG)
+    #[usage(long, global)]
+    config: Option<PathBuf>,
     #[usage(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommands)]
 enum Commands {
+    Settings(SettingsArgs),
+    Status(Status),
+    Preview(Preview),
     Discovery(Discovery),
     Scan(Scan),
     Decode(Decode),
     Info(Info),
     Image(Image),
     Print(Print),
+}
+
+/// Configure saved printer/media; without flags, open a terminal menu
+#[derive(Args)]
+struct SettingsArgs {
+    /// Save a printer MAC address; changing printers clears saved media
+    #[usage(long)]
+    address: Option<String>,
+    /// Save printer model (r22)
+    #[usage(long)]
+    model: Option<String>,
+    /// Save loaded media: gap:50x30, circle:40, or continuous:50 (mm)
+    #[usage(long)]
+    media: Option<String>,
+    /// Clear the saved media selection
+    #[usage(long)]
+    clear_media: bool,
+}
+
+/// Show effective printer/media selections without contacting Bluetooth
+#[derive(Args)]
+struct Status {
+    /// Output effective settings as JSON
+    #[usage(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct Preparation {
+    /// Override loaded media for this job: gap:50x30, circle:40, continuous:50
+    #[usage(long)]
+    media: Option<String>,
+    /// Image placement: label crops physical margins; fit preserves the whole image
+    #[usage(long, default = "label")]
+    layout: String,
+    /// Length in mm for continuous stock; otherwise derived from image aspect ratio
+    #[usage(long)]
+    length_mm: Option<f64>,
+    /// Ignore selected media and treat image pixels as printer dots
+    #[usage(long)]
+    raw: bool,
+}
+
+#[derive(Args)]
+struct ImageConversion {
+    /// 1-bit conversion: none, floyd-steinberg, atkinson, jarvis, stucki, sierra, sierra-lite, bayer
+    #[usage(long, default = "none")]
+    dither: String,
+    /// SDK threshold (inclusive, default 208); only valid with --dither none
+    #[usage(long)]
+    threshold: Option<u8>,
+}
+
+impl ImageConversion {
+    fn resolve(&self) -> Result<rongta::monochrome::Conversion> {
+        use rongta::monochrome::Conversion;
+        if self.dither == "none" {
+            Ok(Conversion::Threshold(self.threshold.unwrap_or(208)))
+        } else {
+            let method = self.dither.parse()?;
+            ensure!(
+                self.threshold.is_none(),
+                "--threshold only applies to --dither none"
+            );
+            Ok(Conversion::Dither(method))
+        }
+    }
+}
+
+/// Save an exact monochrome raster preview without contacting the printer
+#[derive(Args)]
+struct Preview {
+    input: PathBuf,
+    /// Destination PNG file
+    #[usage(long)]
+    output: PathBuf,
+    /// Head width in dots; defaults to the measured R22 width
+    #[usage(long, default = "384")]
+    head_width: u32,
+    #[usage(flatten)]
+    conversion: ImageConversion,
+    #[usage(flatten)]
+    preparation: Preparation,
 }
 
 /// Discover likely printers and show a readable device table
@@ -72,7 +163,7 @@ struct Decode {
 #[derive(Args)]
 struct Info {
     /// Printer Bluetooth MAC address (AA:BB:CC:DD:EE:FF)
-    address: String,
+    address: Option<String>,
     /// Host BlueZ adapter; defaults to the system's default adapter
     #[usage(long)]
     adapter: Option<String>,
@@ -99,21 +190,25 @@ struct Image {
     /// Printer pBuffLength from info output; not the decoder's body-length limit
     #[usage(long)]
     buffer_length: u16,
-    /// SDK black/white threshold (inclusive)
-    #[usage(long, default = "208")]
-    threshold: u8,
+    #[usage(flatten)]
+    conversion: ImageConversion,
 }
 
 /// Handshake and send a PNG/PNM label over host BlueZ SPP
 ///
-/// Pixels are printer dots. Narrow images are centered; oversized images fail.
+/// Uses selected media for image geometry. Without media, pixels are printer dots.
 /// Success reports submission and a subsequent idle status, not verified paper output.
 #[derive(Args)]
 struct Print {
-    /// Printer Bluetooth MAC address (AA:BB:CC:DD:EE:FF)
-    address: String,
-    /// Source PNG or PNM image
+    #[usage(flatten)]
+    preparation: Preparation,
+    /// Source image (legacy: MAC followed by image is also accepted)
     input: PathBuf,
+    /// Image path when using the legacy MAC IMAGE syntax
+    legacy_input: Option<PathBuf>,
+    /// Override the selected printer for this job
+    #[usage(long)]
+    address: Option<String>,
     /// Host BlueZ adapter; defaults to the system's default adapter
     #[usage(long)]
     adapter: Option<String>,
@@ -135,9 +230,8 @@ struct Print {
     /// Forward-feed length after each copy; raw SDK units, not yet measured
     #[usage(long, default = "0")]
     feed_length: u16,
-    /// SDK black/white threshold (inclusive)
-    #[usage(long, default = "208")]
-    threshold: u8,
+    #[usage(flatten)]
+    conversion: ImageConversion,
     /// Delay before each setup command or image batch, matching the app by default
     #[usage(long, default = "100")]
     command_delay_ms: u64,
@@ -154,6 +248,112 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut output = io::stdout().lock();
     match cli.command {
+        Commands::Preview(args) => {
+            let settings = Storage::discover(cli.config)?.effective()?;
+            let media = resolve_media(&args.preparation, settings.printer.media)?;
+            let source = load_image(&args.input)?;
+            let raster = prepare_image(
+                &source,
+                media.as_ref(),
+                &args.preparation,
+                args.head_width,
+                args.conversion.resolve()?,
+            )?;
+            rongta::image_processing::preview(&raster)
+                .save_with_format(&args.output, image::ImageFormat::Png)
+                .with_context(|| format!("Cannot save preview {}", args.output.display()))?;
+            writeln!(
+                output,
+                "Saved {} × {} dot preview to {}",
+                raster.width(),
+                raster.height(),
+                args.output.display()
+            )?;
+        }
+        Commands::Settings(args) => {
+            let storage = Storage::discover(cli.config)?;
+            // Validate explicit config even though this command only writes saved state.
+            storage.effective()?;
+            if args.address.is_none()
+                && args.model.is_none()
+                && args.media.is_none()
+                && !args.clear_media
+            {
+                settings_ui::menu(&storage).await?;
+            } else {
+                ensure!(
+                    !(args.clear_media && args.media.is_some()),
+                    "Use either --media or --clear-media"
+                );
+                let address = args
+                    .address
+                    .as_deref()
+                    .map(str::parse::<bluer::Address>)
+                    .transpose()
+                    .context("Invalid printer Bluetooth address")?;
+                let media = args.media.as_deref().map(str::parse::<Media>).transpose()?;
+                if let Some(model) = &args.model {
+                    ensure!(
+                        model == "r22",
+                        "Unsupported printer model {model}; only r22 is supported"
+                    );
+                }
+                storage.update(|saved| {
+                    if let Some(address) = address {
+                        if saved.printer.address != Some(address) {
+                            saved.printer.media = None;
+                        }
+                        saved.printer.address = Some(address);
+                    }
+                    if args.model.is_some() {
+                        saved.printer.model = Model::R22;
+                    }
+                    if args.clear_media {
+                        saved.printer.media = None;
+                    }
+                    if let Some(media) = media {
+                        saved.printer.media = Some(media);
+                    }
+                    Ok(())
+                })?;
+                writeln!(output, "Saved settings to {}", storage.state_path.display())?;
+                if storage.effective()? != storage.saved()? {
+                    eprintln!(
+                        "File/environment overrides remain active; use rongta status to see effective settings."
+                    );
+                }
+            }
+        }
+        Commands::Status(args) => {
+            let storage = Storage::discover(cli.config)?;
+            let settings = storage.effective()?;
+            if args.json {
+                serde_json::to_writer_pretty(&mut output, &settings)?;
+                writeln!(output)?;
+            } else {
+                writeln!(
+                    output,
+                    "Printer: {}\nModel:   {}\nMedia:   {}\nState:   {}\nConfig:  {}",
+                    settings
+                        .printer
+                        .address
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| "not selected".into()),
+                    settings.printer.model,
+                    settings
+                        .printer
+                        .media
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| "not selected".into()),
+                    storage.state_path.display(),
+                    storage.config_path.display()
+                )?;
+                if settings != storage.saved()? {
+                    writeln!(output, "File/environment overrides are active.")?;
+                }
+            }
+        }
         Commands::Scan(args) => {
             ensure!(
                 (1..=3600).contains(&args.timeout),
@@ -175,14 +375,18 @@ async fn main() -> Result<()> {
                 args.buffer_length >= 64,
                 "--buffer-length must be at least 64 bytes"
             );
-            let raster = load_raster(&args.input, args.threshold)?;
+            let conversion = args.conversion.resolve()?;
+            let source = load_image(&args.input)?;
+            let raster = rongta::monochrome::convert(&source, source.dimensions(), conversion)?;
             let job = rongta::image_data::encode_image(&raster, args.buffer_length)?;
             for frame in job {
                 output.write_all(&frame.encode()?)?;
             }
         }
         Commands::Info(args) => {
-            let address = validate_connection(&args.address, args.timeout, args.pin.as_deref())?;
+            let settings = Storage::discover(cli.config)?.effective()?;
+            let address = resolve_address(args.address.as_deref(), settings.printer.address)?;
+            let address = validate_connection(&address, args.timeout, args.pin.as_deref())?;
             init_logging(args.verbose);
             let timeout = Duration::from_secs(args.timeout);
             let mut nonce = [0; 8];
@@ -202,13 +406,40 @@ async fn main() -> Result<()> {
             writeln!(output)?;
         }
         Commands::Print(args) => {
-            let address = validate_connection(&args.address, args.timeout, args.pin.as_deref())?;
+            let settings = Storage::discover(cli.config)?.effective()?;
+            let (input, explicit_address) = if let Some(input) = &args.legacy_input {
+                ensure!(
+                    args.address.is_none(),
+                    "Do not combine legacy MAC IMAGE syntax with --address"
+                );
+                (
+                    input,
+                    Some(
+                        args.input
+                            .to_str()
+                            .context("Invalid printer Bluetooth address")?,
+                    ),
+                )
+            } else {
+                (&args.input, args.address.as_deref())
+            };
+            let address = resolve_address(explicit_address, settings.printer.address)?;
+            let address = validate_connection(&address, args.timeout, args.pin.as_deref())?;
+            // A one-off different printer has no known loaded media.
+            let saved_media =
+                if explicit_address.is_some() && settings.printer.address != Some(address) {
+                    None
+                } else {
+                    settings.printer.media
+                };
+            let media = resolve_media(&args.preparation, saved_media)?;
             ensure!(
                 (1..=100).contains(&args.copies),
                 "--copies must be between 1 and 100"
             );
             ensure!(args.density <= 15, "--density must be between 0 and 15");
-            let raster = load_raster(&args.input, args.threshold)?;
+            let conversion = args.conversion.resolve()?;
+            let source = load_image(input)?;
             init_logging(args.verbose);
             let timeout = Duration::from_secs(args.timeout);
             let mut nonce = [0; 8];
@@ -230,6 +461,13 @@ async fn main() -> Result<()> {
                 buffer = info.protocol.buffer_length,
                 "Printer handshake complete"
             );
+            let raster = prepare_image(
+                &source,
+                media.as_ref(),
+                &args.preparation,
+                info.model.width_dots,
+                conversion,
+            )?;
             let options = rongta::printing::PrintOptions {
                 copies: args.copies,
                 density: args.density,
@@ -355,7 +593,64 @@ fn init_logging(verbose: bool) {
         .init();
 }
 
-fn load_raster(path: &std::path::Path, threshold: u8) -> Result<rongta::raster::Raster> {
+fn resolve_address(explicit: Option<&str>, saved: Option<bluer::Address>) -> Result<String> {
+    explicit
+        .map(str::to_owned)
+        .or_else(|| saved.map(|a| a.to_string()))
+        .context("No printer selected; run rongta settings or provide a printer address")
+}
+
+fn resolve_media(args: &Preparation, saved: Option<Media>) -> Result<Option<Media>> {
+    let _: rongta::image_processing::Layout = args.layout.parse()?;
+    ensure!(
+        !(args.raw && (args.media.is_some() || args.length_mm.is_some() || args.layout != "label")),
+        "--raw cannot be combined with media, length, or layout options"
+    );
+    let media = if args.raw {
+        None
+    } else {
+        args.media.as_deref().map(str::parse).transpose()?.or(saved)
+    };
+    ensure!(
+        media.is_some() || (args.length_mm.is_none() && args.layout == "label"),
+        "Length and layout options require selected media"
+    );
+    if let Some(length) = args.length_mm {
+        ensure!(
+            matches!(media, Some(Media::Continuous { .. })),
+            "--length-mm only applies to continuous media"
+        );
+        ensure!(
+            length.is_finite() && length > 2.0 && length <= 1000.0,
+            "Label length must be greater than 2 mm and at most 1000 mm"
+        );
+    }
+    Ok(media)
+}
+
+fn prepare_image(
+    source: &image::RgbaImage,
+    media: Option<&Media>,
+    args: &Preparation,
+    width: u32,
+    conversion: rongta::monochrome::Conversion,
+) -> Result<rongta::raster::Raster> {
+    match media {
+        Some(media) => rongta::image_processing::prepare(
+            source,
+            media,
+            width,
+            args.layout.parse()?,
+            args.length_mm,
+            conversion,
+        ),
+        None => {
+            rongta::monochrome::convert(source, source.dimensions(), conversion)?.centered(width)
+        }
+    }
+}
+
+fn load_image(path: &std::path::Path) -> Result<image::RgbaImage> {
     let mut reader = image::ImageReader::open(path)
         .with_context(|| format!("Cannot open {}", path.display()))?
         .with_guessed_format()?;
@@ -366,10 +661,7 @@ fn load_raster(path: &std::path::Path, threshold: u8) -> Result<rongta::raster::
         .decode()
         .context("Decoding PNG/PNM image")?
         .into_rgba8();
-    let mut canvas =
-        image::RgbaImage::from_pixel(source.width(), source.height(), image::Rgba([255; 4]));
-    image::imageops::overlay(&mut canvas, &source, 0, 0);
-    rongta::raster::Raster::from_rgba(&canvas, threshold)
+    Ok(source)
 }
 
 fn decode_stream(mut input: impl Read, output: &mut impl Write, max_body_len: u16) -> Result<()> {

@@ -29,9 +29,30 @@ compressor from conversion. Algorithm 0 jobs use the same compression.
 Rust's `Raster::from_rgba` matches native conversion but safely pads partial
 rows to the next eight dots. The native code allocates floor(width*height/8)
 bytes while packing ceil(width/8) bytes per row; unaligned dimensions are unsafe
-in the SDK and are not exercised through JNI. The CLI composites alpha onto
-white first, matching the app's white-canvas preparation. It does not resize,
-crop, rotate, dither, invert, or apply physical offsets.
+in the SDK and are not exercised through JNI. The default CLI conversion
+composites alpha onto white before SDK thresholding. Media-aware `print` and
+`preview` crop/resize and place content on the R22 label canvas; offline `image`
+keeps input dimensions (with byte padding).
+
+## Dithered image inputs
+
+`--dither` enables the 1-bit path adapted from
+`../synapdeck-togo/nix/packages/img2idx/img2idx.py`. This uses linear-light
+alpha compositing, linear RGB Lanczos3 resampling via `image`, Rec.709 luminance,
+and serpentine error diffusion (Floyd–Steinberg, Atkinson, Jarvis, Stucki, Sierra,
+Sierra Lite) or ordered 8×8 Bayer dithering. Atkinson retains its 6/8 error
+distribution. No intermediate grayscale levels are sent to the printer: output
+is always MSB-first, 1=black, with white row padding. Threshold mode remains
+the default and uses the original sRGB/triangle preparation for compatibility.
+
+`rongta-rs/tests/fixtures/dither.json` records exact 1-bit reference outputs for
+all seven methods, including transparency and non-byte-aligned width. Regenerate
+it from the repository root with `python3 tools/image-processing-reference.py`
+(Pillow and NumPy required); it records the source script's SHA-256. Rust matches
+those quantization bytes. Resampling is checked separately for linear-light
+coverage and media geometry; Pillow and Rust Lanczos are not claimed to match
+pixel-for-pixel. The reference's tone controls and blue-noise generator are not
+included. Hardware output for this new preprocessing path has not been verified.
 
 ## Huffman sections
 

@@ -114,6 +114,110 @@ limits.
 
 ## Send a print job
 
+Run `rongta settings` for a terminal menu to select a printer (scan or enter its
+MAC), model, and loaded media. The menu has explicit Save and Cancel actions;
+changing printers clears the old media selection. R22 is currently the only
+model. Selection does not pair with or print to the device.
+
+From `rongta-rs/`, the equivalent noninteractive workflow is:
+
+```sh
+cargo run -- settings --address AA:BB:CC:DD:EE:FF --model r22 --media gap:50x30
+cargo run -- status                         # effective selection and storage paths
+cargo run -- status --json
+cargo run -- info                           # query the selected printer
+cargo run -- preview label.png --output /tmp/label-preview.png
+cargo run -- print label.png
+```
+
+Saved selections live in `directories::ProjectDirs::state_dir()` (local data
+directory fallback where the platform has no state directory). On Linux this
+is `$XDG_STATE_HOME/rongta/state.toml`, normally `~/.local/state/rongta/state.toml`.
+Updates are locked and atomically replaced. A menu opened before another process
+changes the selection refuses to overwrite the newer state.
+
+`confique` loads optional TOML overrides from the platform config directory,
+normally `~/.config/rongta/config.toml`. `--config PATH` or `RONGTA_CONFIG` selects
+an alternative file; an explicitly selected file must exist. Example:
+
+```toml
+[printer]
+address = "AA:BB:CC:DD:EE:FF"
+model = "r22"
+
+[printer.media]
+type = "gap"
+width_mm = 50
+height_mm = 30
+```
+
+Saved state uses the same `[printer]` and `[printer.media]` blocks, with a
+top-level `version = 2`. Older version-1 selections load without modification
+and migrate to the new structure on the next settings save. `status --json`
+also groups the address, model, and structured media under `printer`.
+Circular media uses `type = "circle"` with `diameter_mm`; continuous stock uses
+`type = "continuous"` with `width_mm`. Media is replaced as a complete value
+when overriding configuration; dimensions are never merged across media types.
+
+For these settings, precedence is explicit command arguments, then
+`RONGTA_ADDRESS` / `RONGTA_MODEL` / `RONGTA_MEDIA`, then the chosen config file,
+then saved state. The default model is R22. `--config` takes precedence over
+`RONGTA_CONFIG`. The menu and `settings` flags always edit saved state; they
+do not rewrite config files or persist environment overrides. The menu shows
+active overrides, and `status` shows their effective values. A different
+printer address supplied by config, environment, or a command does not inherit
+the previous printer's saved media; select media for that printer explicitly.
+
+CLI and environment media shorthand uses millimetres: `gap:50x30`, `circle:40`,
+or `continuous:50`. Config files and saved state use the structured tables above.
+The menu contains the original app's R22 presets and a custom-size input.
+`settings --clear-media` restores pixel-for-pixel image handling. Width is
+limited to 50 mm; fixed/derived lengths must exceed 2 mm and are limited to
+1000 mm by this implementation. These checks are not a claim of hardware
+validation for every size. Media selection controls image geometry; it does
+not change the printer's paper-sensor configuration.
+
+With media selected, `print` and `preview` use the R22 app's 8 dots/mm geometry.
+The default `--layout label` treats the input as a full-label design, crops its
+central printable area (width capped at 48 mm, height reduced by 2 mm), and
+centres it on a white full-head-width raster. A 50 × 30 mm design corresponds
+to 400 × 240 pixels; the printable crop is 384 × 224, sent on a 384 × 240 raster.
+Circular media additionally masks pixels outside the circle. `--layout fit`
+fits the entire image proportionally within the printable area. Resampling
+uses the `image` crate's triangle filter; exact Android resampling equivalence
+has not been established. By default, monochrome conversion uses the SDK
+threshold (`--dither none`, `--threshold 208`).
+
+For photos, use `--dither floyd-steinberg`. This adapts the 1-bit path from
+`synapdeck-togo/nix/packages/img2idx/img2idx.py`: composite transparency on white
+in linear light, resize linear RGB with Lanczos3, compute Rec.709 luminance,
+then dither to black/white. Diffusion alternates direction each row. Additional
+methods are `atkinson`, `jarvis`, `stucki`, `sierra`, `sierra-lite`, and an 8×8
+ordered `bayer` pattern. `--threshold` only applies to `--dither none`.
+The reference's tone adjustments and blue-noise generation are not ported.
+
+The decoded R22 raster format has **one bit per dot**, so gray tones are
+represented by patterns of black dots. The shared SDK's grayscale enum does
+not establish grayscale support on the R22. Dithering runs before adding white
+feed margins and the circular media mask. No additional dependencies are needed.
+
+```sh
+cargo run -- preview photo.png --media gap:50x30 --layout fit --dither floyd-steinberg --output /tmp/photo-preview.png
+cargo run -- print photo.png --layout fit --dither floyd-steinberg
+cargo run -- print label.png --media gap:40x30    # one-job override
+cargo run -- print strip.png --media continuous:50 --length-mm 80
+cargo run -- print prepared.png --raw             # image pixels are dots
+cargo run -- print label.png --address AA:BB:CC:DD:EE:FF --media gap:50x30
+```
+
+Continuous media derives job length from image aspect ratio unless
+`--length-mm` is supplied. `preview` has the same media/layout/length/raw and
+threshold/dither options as `print`; its PNG represents the packed monochrome raster,
+including margins. It uses a 384-dot head by default (`--head-width` overrides
+this); printing reads the actual head width during handshake. Offset adjustments
+are not yet exposed. The offline `image` command remains a raw pixel/protocol
+tool and does not apply saved media. It accepts `--dither` but does not resize.
+
 With host Bluetooth restored and the dev shell loaded, from `rongta-rs/`:
 
 ```sh
@@ -127,8 +231,8 @@ cargo run -- print AA:BB:CC:DD:EE:FF label.png --copies 2 --density 8
 `print` handshakes on the same connection it uses for the job. It takes the
 buffer length and head width from the printer, checks status, announces the
 app connection, sets print mode and density, then sends the compressed image.
-Pixels are dots: it centers narrower images on a full-width white canvas and
-rejects wider images rather than resizing. Transparency is composited on white;
+Without selected media, or with `--raw`, pixels are dots: it centers narrower
+images on a full-width white canvas and rejects wider images. Transparency is composited on white;
 `--threshold` defaults to 208. Centering includes any byte-alignment padding.
 Use a canvas matching your label and printer geometry for precise placement.
 

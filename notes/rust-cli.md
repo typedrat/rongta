@@ -20,6 +20,10 @@ SDK-validated formats.
 | Handshake digest | RustCrypto `md-5` |
 | Image decoding and manipulation | `image`, initially PNG and PNM |
 | Structured output and fixtures | `serde`, `serde_json` |
+| Platform state/config locations | `directories` |
+| Typed TOML/environment configuration | `confique`, `toml` |
+| Interactive settings menu | `dialoguer` |
+| Atomic state replacement | `tempfile`, standard-library file locks |
 | Diagnostics | `tracing`, `tracing-subscriber` |
 | Packet hex output | `hex` |
 | Protocol and application errors | `thiserror`, `anyhow` |
