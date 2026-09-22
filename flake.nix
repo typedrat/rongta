@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
+    crane.url = "github:ipetkov/crane";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
@@ -22,6 +23,25 @@
       perSystem =
         { pkgs, system, ... }:
         let
+          craneLib = inputs.crane.mkLib pkgs;
+          commonArgs = {
+            src = pkgs.lib.cleanSourceWith {
+              src = ./rongta-rs;
+              # The Rust tests embed JSON fixtures with include_str!.
+              filter = path: type: craneLib.filterCargoSources path type || pkgs.lib.hasSuffix ".json" path;
+            };
+            strictDeps = true;
+            cargoExtraArgs = "--workspace";
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.dbus ];
+          };
+          rongta = craneLib.buildPackage (
+            commonArgs
+            // {
+              cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+              meta.mainProgram = "rongta";
+            }
+          );
           android = pkgs.androidenv.composeAndroidPackages {
             platformVersions = [ "35" ];
             buildToolsVersions = [ "35.0.0" ];
@@ -42,8 +62,12 @@
             };
           };
 
+          packages = {
+            inherit rongta;
+            default = rongta;
+          };
+
           devshells.default = {
-            devshell.name = "rongta";
             packages = [
               android.androidsdk
               pkgs.python3Packages.bumble
