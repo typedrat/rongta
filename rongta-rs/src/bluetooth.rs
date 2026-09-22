@@ -169,27 +169,47 @@ pub struct ScanDevice {
 }
 
 impl ScanDevice {
-    /// A hint, not a protocol/compatibility check. SPP alone is not printer-specific.
+    /// RONGTA 3.1.6's normal-channel name filter, not a compatibility check.
+    /// This applies the stock name rules only, without Android device-type or
+    /// app-channel gates. It does not establish protocol compatibility.
     pub fn is_printer_candidate(&self) -> bool {
-        // Bluetooth Assigned Numbers 2.8.2.6: imaging major class, printer bit.
-        // https://www.bluetooth.com/specifications/assigned-numbers/
-        if self
-            .class
-            .is_some_and(|class| class & 0x1f00 == 0x0600 && class & 0x80 != 0)
-        {
-            return true;
-        }
-        let name = self
-            .name
-            .as_deref()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        name.contains("rongta")
-            || name.contains("printer")
-            || name
-                .split(|c: char| !c.is_ascii_alphanumeric())
-                .any(|word| word == "r22")
+        self.name.as_deref().is_some_and(stock_printer_name)
     }
+}
+
+fn stock_printer_name(name: &str) -> bool {
+    // SearchBluetoothDeviceActivity.filterDevice, PrintModel.values(), and qh.j0.d.
+    // Keep this list independent of the models supported by our print protocol.
+    const MODELS: &[&str] = &[
+        "PN81", "F81", "F82", "F81A", "F81S", "F82A", "F11", "F12", "R5", "R22", "TM95", "TD210",
+        "TH110", "RP425", "RP420", "RP421A", "RP415", "R26", "X21", "RP310D", "T11", "T12", "X11",
+    ];
+    const VARIANT_PREFIXES: &[&str] = &[
+        "R5", "R22", "R26", "TM95", "TD210", "TH110", "RP425", "RP420", "RP415", "RP310D",
+    ];
+    let upper = name.to_uppercase();
+    if name.trim().is_empty() || upper.ends_with("BLE") {
+        return false;
+    }
+    // Java's regex dot excludes all of these, even after a name separator.
+    if name.contains(['\n', '\r', '\u{0085}', '\u{2028}', '\u{2029}']) {
+        return false;
+    }
+    // Stock checks the original case before using an uppercase regex match.
+    let allow_variant = VARIANT_PREFIXES
+        .iter()
+        .any(|prefix| name.starts_with(prefix));
+    MODELS.iter().any(|model| {
+        let Some(suffix) = upper.strip_prefix(model) else {
+            return false;
+        };
+        let variant = suffix.split(['-', '_', ' ']).next().unwrap_or_default();
+        // Equivalent to ^MODEL[A-Z0-9]{0,3}([-_ ].*)?$ (or no variant).
+        variant.is_empty()
+            || (allow_variant
+                && variant.len() <= 3
+                && variant.bytes().all(|c| c.is_ascii_alphanumeric()))
+    })
 }
 
 /// Discover on both supported transports without pairing or connecting.

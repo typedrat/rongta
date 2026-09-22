@@ -736,31 +736,35 @@ mod scan_output_tests {
     }
 
     #[test]
-    fn printer_heuristic_accepts_class_or_names_but_not_spp_alone() {
-        for (name, class, expected) in [
-            (None, Some(0x40680), true), // imaging printer, rendering service bit
-            (None, Some(0x6c0), true),   // combined printer/scanner
-            (Some("Camera"), Some(0x620), false),
-            (Some("Headset"), Some(0x480), false), // same minor bit, wrong major class
-            (Some("RONGTA_123"), None, true),
-            (Some("r22-123"), None, true),
-            (Some("Label Printer"), None, true),
-            (Some("CAR220"), None, false),
-            (Some("Serial adapter"), None, false),
-            (None, None, false),
-        ] {
-            assert_eq!(
-                device(name, class).is_printer_candidate(),
-                expected,
-                "{name:?} {class:?}"
-            );
+    fn printer_filter_matches_stock_java_reference_regardless_of_class_or_spp() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: Option<String>,
+            expected: bool,
+        }
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../tests/fixtures/stock-device-filter.json"))
+                .unwrap();
+        for case in cases {
+            for class in [None, Some(0x40680), Some(0x6c0), Some(0x480)] {
+                for spp in [None, Some(false), Some(true)] {
+                    let mut device = device(case.name.as_deref(), class);
+                    device.spp = spp;
+                    assert_eq!(
+                        device.is_printer_candidate(),
+                        case.expected,
+                        "name={:?}, class={class:?}, spp={spp:?}",
+                        case.name
+                    );
+                }
+            }
         }
     }
 
     #[test]
     fn json_filter_and_human_output_handle_unknowns_and_escape_names() {
         let devices = [
-            device(Some("R22\n\x1b[31m"), None),
+            device(Some("R22_\x1b[31m"), None),
             device(Some("Headphones"), None),
         ];
         let mut out = vec![];
@@ -782,7 +786,7 @@ mod scan_output_tests {
         let table = String::from_utf8(out).unwrap();
         assert!(table.contains("ADDRESS") && table.contains("AA:BB:CC:DD:EE:FF"));
         assert!(!table.contains("Headphones") && !table.contains('\x1b'));
-        assert!(table.contains(r"R22\n"));
+        assert!(table.contains(r"R22_\u{1b}"));
     }
 
     #[test]

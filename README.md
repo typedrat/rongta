@@ -62,12 +62,20 @@ cargo run -- scan --json                # likely printers as JSON
 cargo run -- scan --all --json          # all devices as JSON
 ```
 
-The printer heuristic matches the Bluetooth imaging/printer device class or a
-case-insensitive name containing `RONGTA`, `Printer`, or the token `R22`. The
-class bits follow [Bluetooth Assigned Numbers, section 2.8.2.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Assigned_Numbers/out/en/index-en.html).
-It is not a compatibility check, and generic names or missing classes can hide
-real printers. Use `--all` if your printer is missing. SPP alone is not enough
-to classify a device as a printer.
+The printer filter ports the name rules from RONGTA 3.1.6's normal app channel:
+names must match a model in its built-in list, including its permitted variant
+and separator suffixes. Blank names and names ending in `BLE` (ignoring case)
+are excluded. For example, `R22`, `R22_1234`, and `R22Pro` match; `My R22`,
+`RONGTA Printer`, and `R22_BLE` do not. The stock app's case quirk is preserved:
+`r22-1234` matches but `r22Pro` does not. Device class and SPP UUIDs do not affect
+this filter. The settings picker uses the same rules.
+
+Classic+BLE discovery is unchanged. Only the stock app's name rules are ported;
+its Android device-type check and app-channel restrictions are not applied.
+The filter is not a compatibility check: discovery recognizes all stock model
+names, while this CLI currently supports printing only with R22. Use `--all`
+if your printer is missing. See [discovery filter notes](notes/discovery.md) for
+the source mapping and Java reference fixtures.
 
 The table shows address, RSSI in dBm, known SPP support, pairing state, whether
 BlueZ knew the device before scanning, and its name. JSON additionally includes

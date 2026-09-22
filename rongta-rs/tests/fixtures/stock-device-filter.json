@@ -1,0 +1,542 @@
+[
+  {
+    "name": null,
+    "expected": false
+  },
+  {
+    "name": "PN81",
+    "expected": true
+  },
+  {
+    "name": "PN81_123",
+    "expected": true
+  },
+  {
+    "name": "PN81Pro",
+    "expected": false
+  },
+  {
+    "name": "PN81ABCD",
+    "expected": false
+  },
+  {
+    "name": "F81",
+    "expected": true
+  },
+  {
+    "name": "F81_123",
+    "expected": true
+  },
+  {
+    "name": "F81Pro",
+    "expected": false
+  },
+  {
+    "name": "F81ABCD",
+    "expected": false
+  },
+  {
+    "name": "F82",
+    "expected": true
+  },
+  {
+    "name": "F82_123",
+    "expected": true
+  },
+  {
+    "name": "F82Pro",
+    "expected": false
+  },
+  {
+    "name": "F82ABCD",
+    "expected": false
+  },
+  {
+    "name": "F81A",
+    "expected": true
+  },
+  {
+    "name": "F81A_123",
+    "expected": true
+  },
+  {
+    "name": "F81APro",
+    "expected": false
+  },
+  {
+    "name": "F81AABCD",
+    "expected": false
+  },
+  {
+    "name": "F81S",
+    "expected": true
+  },
+  {
+    "name": "F81S_123",
+    "expected": true
+  },
+  {
+    "name": "F81SPro",
+    "expected": false
+  },
+  {
+    "name": "F81SABCD",
+    "expected": false
+  },
+  {
+    "name": "F82A",
+    "expected": true
+  },
+  {
+    "name": "F82A_123",
+    "expected": true
+  },
+  {
+    "name": "F82APro",
+    "expected": false
+  },
+  {
+    "name": "F82AABCD",
+    "expected": false
+  },
+  {
+    "name": "F11",
+    "expected": true
+  },
+  {
+    "name": "F11_123",
+    "expected": true
+  },
+  {
+    "name": "F11Pro",
+    "expected": false
+  },
+  {
+    "name": "F11ABCD",
+    "expected": false
+  },
+  {
+    "name": "F12",
+    "expected": true
+  },
+  {
+    "name": "F12_123",
+    "expected": true
+  },
+  {
+    "name": "F12Pro",
+    "expected": false
+  },
+  {
+    "name": "F12ABCD",
+    "expected": false
+  },
+  {
+    "name": "R5",
+    "expected": true
+  },
+  {
+    "name": "R5_123",
+    "expected": true
+  },
+  {
+    "name": "R5Pro",
+    "expected": true
+  },
+  {
+    "name": "R5ABCD",
+    "expected": false
+  },
+  {
+    "name": "R22",
+    "expected": true
+  },
+  {
+    "name": "R22_123",
+    "expected": true
+  },
+  {
+    "name": "R22Pro",
+    "expected": true
+  },
+  {
+    "name": "R22ABCD",
+    "expected": false
+  },
+  {
+    "name": "TM95",
+    "expected": true
+  },
+  {
+    "name": "TM95_123",
+    "expected": true
+  },
+  {
+    "name": "TM95Pro",
+    "expected": true
+  },
+  {
+    "name": "TM95ABCD",
+    "expected": false
+  },
+  {
+    "name": "TD210",
+    "expected": true
+  },
+  {
+    "name": "TD210_123",
+    "expected": true
+  },
+  {
+    "name": "TD210Pro",
+    "expected": true
+  },
+  {
+    "name": "TD210ABCD",
+    "expected": false
+  },
+  {
+    "name": "TH110",
+    "expected": true
+  },
+  {
+    "name": "TH110_123",
+    "expected": true
+  },
+  {
+    "name": "TH110Pro",
+    "expected": true
+  },
+  {
+    "name": "TH110ABCD",
+    "expected": false
+  },
+  {
+    "name": "RP425",
+    "expected": true
+  },
+  {
+    "name": "RP425_123",
+    "expected": true
+  },
+  {
+    "name": "RP425Pro",
+    "expected": true
+  },
+  {
+    "name": "RP425ABCD",
+    "expected": false
+  },
+  {
+    "name": "RP420",
+    "expected": true
+  },
+  {
+    "name": "RP420_123",
+    "expected": true
+  },
+  {
+    "name": "RP420Pro",
+    "expected": true
+  },
+  {
+    "name": "RP420ABCD",
+    "expected": false
+  },
+  {
+    "name": "RP421A",
+    "expected": true
+  },
+  {
+    "name": "RP421A_123",
+    "expected": true
+  },
+  {
+    "name": "RP421APro",
+    "expected": false
+  },
+  {
+    "name": "RP421AABCD",
+    "expected": false
+  },
+  {
+    "name": "RP415",
+    "expected": true
+  },
+  {
+    "name": "RP415_123",
+    "expected": true
+  },
+  {
+    "name": "RP415Pro",
+    "expected": true
+  },
+  {
+    "name": "RP415ABCD",
+    "expected": false
+  },
+  {
+    "name": "R26",
+    "expected": true
+  },
+  {
+    "name": "R26_123",
+    "expected": true
+  },
+  {
+    "name": "R26Pro",
+    "expected": true
+  },
+  {
+    "name": "R26ABCD",
+    "expected": false
+  },
+  {
+    "name": "X21",
+    "expected": true
+  },
+  {
+    "name": "X21_123",
+    "expected": true
+  },
+  {
+    "name": "X21Pro",
+    "expected": false
+  },
+  {
+    "name": "X21ABCD",
+    "expected": false
+  },
+  {
+    "name": "RP310D",
+    "expected": true
+  },
+  {
+    "name": "RP310D_123",
+    "expected": true
+  },
+  {
+    "name": "RP310DPro",
+    "expected": true
+  },
+  {
+    "name": "RP310DABCD",
+    "expected": false
+  },
+  {
+    "name": "T11",
+    "expected": true
+  },
+  {
+    "name": "T11_123",
+    "expected": true
+  },
+  {
+    "name": "T11Pro",
+    "expected": false
+  },
+  {
+    "name": "T11ABCD",
+    "expected": false
+  },
+  {
+    "name": "T12",
+    "expected": true
+  },
+  {
+    "name": "T12_123",
+    "expected": true
+  },
+  {
+    "name": "T12Pro",
+    "expected": false
+  },
+  {
+    "name": "T12ABCD",
+    "expected": false
+  },
+  {
+    "name": "X11",
+    "expected": true
+  },
+  {
+    "name": "X11_123",
+    "expected": true
+  },
+  {
+    "name": "X11Pro",
+    "expected": false
+  },
+  {
+    "name": "X11ABCD",
+    "expected": false
+  },
+  {
+    "name": "",
+    "expected": false
+  },
+  {
+    "name": " ",
+    "expected": false
+  },
+  {
+    "name": "\t\n",
+    "expected": false
+  },
+  {
+    "name": "RONGTA_123",
+    "expected": false
+  },
+  {
+    "name": "Label Printer",
+    "expected": false
+  },
+  {
+    "name": "My R22",
+    "expected": false
+  },
+  {
+    "name": "CAR220",
+    "expected": false
+  },
+  {
+    "name": "Serial adapter",
+    "expected": false
+  },
+  {
+    "name": "Headphones",
+    "expected": false
+  },
+  {
+    "name": "R22BLE",
+    "expected": false
+  },
+  {
+    "name": "R22_BLE",
+    "expected": false
+  },
+  {
+    "name": "r22_ble",
+    "expected": false
+  },
+  {
+    "name": "X21BLE",
+    "expected": false
+  },
+  {
+    "name": "X21-ble",
+    "expected": false
+  },
+  {
+    "name": "R22-BLE ",
+    "expected": true
+  },
+  {
+    "name": "R22Pro",
+    "expected": true
+  },
+  {
+    "name": "r22Pro",
+    "expected": false
+  },
+  {
+    "name": "r22-123",
+    "expected": true
+  },
+  {
+    "name": "r22",
+    "expected": true
+  },
+  {
+    "name": "R22ABC",
+    "expected": true
+  },
+  {
+    "name": "R22ABCD",
+    "expected": false
+  },
+  {
+    "name": "R22ABC_label",
+    "expected": true
+  },
+  {
+    "name": "R22ABCD_label",
+    "expected": false
+  },
+  {
+    "name": "R22-",
+    "expected": true
+  },
+  {
+    "name": "R22 ",
+    "expected": true
+  },
+  {
+    "name": " R22",
+    "expected": false
+  },
+  {
+    "name": "R22\tfoo",
+    "expected": false
+  },
+  {
+    "name": "R22_\n",
+    "expected": false
+  },
+  {
+    "name": "R22_\r",
+    "expected": false
+  },
+  {
+    "name": "R22_\u0085",
+    "expected": false
+  },
+  {
+    "name": "R22_\u2028",
+    "expected": false
+  },
+  {
+    "name": "R22_\u2029",
+    "expected": false
+  },
+  {
+    "name": "R22_\t",
+    "expected": true
+  },
+  {
+    "name": "R22_\u001b[31m",
+    "expected": true
+  },
+  {
+    "name": "R22_\u6807\u7b7e",
+    "expected": true
+  },
+  {
+    "name": "R22\u00df",
+    "expected": true
+  },
+  {
+    "name": "R22\u00e9",
+    "expected": false
+  },
+  {
+    "name": "F81pro",
+    "expected": false
+  },
+  {
+    "name": "F81A_label",
+    "expected": true
+  },
+  {
+    "name": "RP421ABC",
+    "expected": false
+  },
+  {
+    "name": "RP310DPro",
+    "expected": true
+  },
+  {
+    "name": "rp310dPro",
+    "expected": false
+  }
+]
