@@ -15,7 +15,42 @@ nix develop
 
 Entering the shell does not launch Android or change Bluetooth services.
 
-## Rust CLI
+## Rust library and CLI
+
+`rongta-rs/` is a Cargo workspace with two packages:
+
+- `rongta`: portable Bluetooth discovery traits and printer detection, framing,
+  handshake, media geometry, image processing, and printing over a caller-supplied
+  Tokio `AsyncRead + AsyncWrite + Unpin` stream.
+- `rongta-cli` (`rongta-rs/cli/`): the Linux `rongta` executable, including BlueZ
+  discovery/transport, OS randomness, terminal UI, and file/environment settings.
+
+Other applications can depend on the library without pulling in BlueZ, D-Bus,
+or CLI dependencies. No feature flags are needed:
+
+```toml
+[dependencies]
+rongta = { path = "/path/to/rongta/rongta-rs" }
+```
+
+Use `rongta::client::Session::new(stream)` with your platform's transport and
+pass a caller-generated nonce to `handshake`. Async sessions need a Tokio
+runtime with time enabled; pure framing, handshake state, and image processing
+do not need a runtime. Media types are available at `rongta::media::Media`.
+For discovery, implement `rongta::bluetooth::Discovery` with your platform's API
+and call `rongta::bluetooth::scan` with `DeviceFilter::Printers` or
+`DeviceFilter::All`. `ScanDevice<Id>` keeps the backend's identifier type, so it
+can hold a MAC address, UUID, or native handle. The library applies the shared
+stock-app name rules; the backend handles adapter selection and discovery
+resources. Discovery futures need not be `Send`. The CLI's `BlueZDiscovery`
+implements this same interface for both `scan` and the settings picker.
+
+The library uses `std`; this split does not add other platform Bluetooth backends.
+
+From `rongta-rs/`, `cargo check -p rongta --lib` and `cargo test -p rongta`
+select only the portable package. Workspace-wide builds include the Linux CLI.
+`cargo run -- ...` still selects the `rongta` executable. To install it from
+source, run `cargo install --path cli --locked`.
 
 The Rust project lives in `rongta-rs/`. It implements the R22 handshake and
 information query and image job submission over Classic Bluetooth SPP, plus
@@ -31,10 +66,10 @@ cargo run -- --help
 cargo run -- --version
 cargo run -- discovery > /tmp/rongta-discovery.bin
 cargo run -- decode /tmp/rongta-discovery.bin
-cargo test --locked
-cargo check --locked --all-targets
-cargo clippy --locked --all-targets -- -D warnings
-cargo fmt --check
+cargo test --locked --workspace
+cargo check --locked --workspace --all-targets
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo fmt --all --check
 ```
 
 Dependency choices and protocol boundaries are recorded in

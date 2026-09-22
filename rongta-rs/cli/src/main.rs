@@ -1,13 +1,18 @@
+use crate::bluetooth::Connection;
+use crate::configuration::{Model, Storage};
 use anyhow::{Context, Result, ensure};
 use bytes::BytesMut;
-use rongta::configuration::{Media, Model, Storage};
-use rongta::{bluetooth::Connection, client, handshake::Handshake, protocol::FrameCodec};
+use rongta::bluetooth::{DeviceFilter, ScanDevice};
+use rongta::media::Media;
+use rongta::{client, handshake::Handshake, protocol::FrameCodec};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio_util::codec::Decoder;
 use usage::{Args, Cli, Subcommands};
+mod bluetooth;
+mod configuration;
 mod settings_ui;
 
 /// Experimental Rongta R22 printer protocol tools
@@ -122,10 +127,10 @@ struct Preview {
 /// Discover likely printers and show a readable device table
 ///
 /// Searches Classic and LE without pairing. Includes BlueZ's cached devices,
-/// which may be out of range. Use --all for devices missed by the printer heuristic.
+/// which may be out of range. Use --all to bypass the stock app's name filter.
 #[derive(Args)]
 struct Scan {
-    /// Show likely printers only (default); --all disables name/device-class filtering
+    /// Match stock RONGTA printer names (default); --all disables name filtering
     #[usage(long, negate = "--all", default = "true")]
     printers: bool,
     /// Output a JSON array instead of a readable table
@@ -360,8 +365,16 @@ async fn main() -> Result<()> {
                 "--timeout must be between 1 and 3600 seconds"
             );
             init_logging(false);
+            let mut discovery = bluetooth::BlueZDiscovery {
+                adapter_name: args.adapter.as_deref(),
+            };
+            let filter = if args.printers {
+                DeviceFilter::Printers
+            } else {
+                DeviceFilter::All
+            };
             let devices =
-                rongta::bluetooth::scan(args.adapter.as_deref(), Duration::from_secs(args.timeout))
+                rongta::bluetooth::scan(&mut discovery, Duration::from_secs(args.timeout), filter)
                     .await?;
             write_scan(&mut output, &devices, args.printers, args.json)?;
         }
@@ -500,14 +513,10 @@ async fn main() -> Result<()> {
 
 fn write_scan(
     output: &mut impl Write,
-    devices: &[rongta::bluetooth::ScanDevice],
+    devices: &[ScanDevice<bluer::Address>],
     printers: bool,
     json: bool,
 ) -> Result<()> {
-    let devices: Vec<_> = devices
-        .iter()
-        .filter(|device| !printers || device.is_printer_candidate())
-        .collect();
     if json {
         serde_json::to_writer_pretty(&mut *output, &devices)?;
         writeln!(output)?;
@@ -518,7 +527,7 @@ fn write_scan(
             output,
             "{}",
             if printers {
-                "No likely printers found. Try --all to include devices with generic names or missing device classes."
+                "No matching printer names found. Try --all to include devices with other names."
             } else {
                 "No Bluetooth devices found."
             }
@@ -706,7 +715,7 @@ mod scan_output_tests {
     use super::*;
     use rongta::bluetooth::ScanDevice;
 
-    fn device(name: Option<&str>, class: Option<u32>) -> ScanDevice {
+    fn device(name: Option<&str>, class: Option<u32>) -> ScanDevice<bluer::Address> {
         ScanDevice {
             address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
             name: name.map(str::to_owned),
@@ -736,39 +745,13 @@ mod scan_output_tests {
     }
 
     #[test]
-    fn printer_filter_matches_stock_java_reference_regardless_of_class_or_spp() {
-        #[derive(serde::Deserialize)]
-        struct Case {
-            name: Option<String>,
-            expected: bool,
-        }
-        let cases: Vec<Case> =
-            serde_json::from_str(include_str!("../tests/fixtures/stock-device-filter.json"))
-                .unwrap();
-        for case in cases {
-            for class in [None, Some(0x40680), Some(0x6c0), Some(0x480)] {
-                for spp in [None, Some(false), Some(true)] {
-                    let mut device = device(case.name.as_deref(), class);
-                    device.spp = spp;
-                    assert_eq!(
-                        device.is_printer_candidate(),
-                        case.expected,
-                        "name={:?}, class={class:?}, spp={spp:?}",
-                        case.name
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn json_filter_and_human_output_handle_unknowns_and_escape_names() {
+    fn json_and_human_output_handle_unknowns_and_escape_names() {
         let devices = [
             device(Some("R22_\x1b[31m"), None),
             device(Some("Headphones"), None),
         ];
         let mut out = vec![];
-        write_scan(&mut out, &devices, true, true).unwrap();
+        write_scan(&mut out, &devices[..1], true, true).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(json.as_array().unwrap().len(), 1);
         assert_eq!(json[0]["address"], "AA:BB:CC:DD:EE:FF");
@@ -782,7 +765,7 @@ mod scan_output_tests {
             2
         );
         out.clear();
-        write_scan(&mut out, &devices, true, false).unwrap();
+        write_scan(&mut out, &devices[..1], true, false).unwrap();
         let table = String::from_utf8(out).unwrap();
         assert!(table.contains("ADDRESS") && table.contains("AA:BB:CC:DD:EE:FF"));
         assert!(!table.contains("Headphones") && !table.contains('\x1b'));

@@ -74,7 +74,7 @@ fn dithered_preview_downsamples_in_linear_light_and_preserves_media_margins() {
 fn preview_and_offline_encoding_use_the_same_reference_dithered_pixels() {
     let sandbox = Sandbox::new("dither-reference");
     let fixture: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/dither.json")).unwrap();
+        serde_json::from_str(include_str!("../../tests/fixtures/dither.json")).unwrap();
     let input = sandbox.0.join("alpha.png");
     let output = sandbox.0.join("preview.png");
     image::RgbaImage::from_raw(

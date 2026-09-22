@@ -1,4 +1,4 @@
-//! Persistent framing and bounded exchanges over an RFCOMM byte stream.
+//! Persistent framing and bounded exchanges over a caller-supplied byte stream.
 use crate::{
     handshake::{Handshake, PrinterInfo},
     protocol::{Frame, FrameCodec},
@@ -51,7 +51,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
                 }
                 bail!("Printer disconnected");
             }
-            tracing::debug!(direction="rx",bytes=%hex::encode(&chunk[..count]),"RFCOMM bytes received");
+            tracing::debug!(direction="rx",bytes=%hex::encode(&chunk[..count]),"Transport bytes received");
             self.buffer.extend_from_slice(&chunk[..count]);
         }
     }
@@ -147,7 +147,7 @@ async fn write_frames(
             if i > 0 {
                 tokio::time::sleep(packet_delay).await;
             }
-            tracing::debug!(direction="tx",bytes=%hex::encode(&wire),"RFCOMM bytes submitted");
+            tracing::debug!(direction="tx",bytes=%hex::encode(&wire),"Transport bytes submitted");
             writer
                 .write_all(&wire)
                 .await
@@ -158,7 +158,7 @@ async fn write_frames(
     if !batch.is_empty() {
         // Android submits each command-list item (including a complete image) in
         // one write. Frame-by-frame writes produced incomplete output on the R22.
-        tracing::debug!(direction="tx",bytes=%hex::encode(&batch),"RFCOMM batch submitted");
+        tracing::debug!(direction="tx",bytes=%hex::encode(&batch),"Transport batch submitted");
         writer
             .write_all(&batch)
             .await

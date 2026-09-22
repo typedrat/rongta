@@ -1,9 +1,11 @@
+use crate::{
+    bluetooth,
+    configuration::{Model, Settings, Storage},
+};
 use anyhow::{Context, Result, ensure};
 use dialoguer::{Input, Select, theme::ColorfulTheme};
-use rongta::{
-    bluetooth,
-    configuration::{Media, Model, Settings, Storage},
-};
+use rongta::bluetooth::DeviceFilter;
+use rongta::media::Media;
 use std::{
     io::{self, IsTerminal},
     time::Duration,
@@ -54,12 +56,15 @@ pub async fn menu(storage: &Storage) -> Result<()> {
                 let address = match method {
                     Some(0) => {
                         eprintln!("Scanning for printers (10 seconds)…");
-                        match bluetooth::scan(None, Duration::from_secs(10)).await {
+                        let mut discovery = bluetooth::BlueZDiscovery { adapter_name: None };
+                        match rongta::bluetooth::scan(
+                            &mut discovery,
+                            Duration::from_secs(10),
+                            DeviceFilter::Printers,
+                        )
+                        .await
+                        {
                             Ok(devices) => {
-                                let devices: Vec<_> = devices
-                                    .into_iter()
-                                    .filter(|device| device.is_printer_candidate())
-                                    .collect();
                                 if devices.is_empty() {
                                     eprintln!(
                                         "No printer candidates found. You can enter a MAC address manually."

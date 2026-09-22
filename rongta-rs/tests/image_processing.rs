@@ -1,7 +1,7 @@
 use image::{Rgba, RgbaImage};
 use rongta::{
-    configuration::Media,
     image_processing::{Layout, prepare},
+    media::Media,
 };
 
 #[test]

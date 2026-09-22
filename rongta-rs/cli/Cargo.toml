@@ -1,0 +1,36 @@
+[package]
+name = "rongta-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Linux Bluetooth CLI for Rongta R22 printers"
+publish = false
+
+[[bin]]
+name = "rongta"
+path = "src/main.rs"
+
+[dependencies]
+rongta = { path = ".." }
+anyhow = "1"
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm", "serde"] }
+bytes = "1"
+confique = { version = "0.4", features = ["toml"] }
+dialoguer = { version = "0.12", default-features = false }
+directories = "6"
+futures-util = "0.3"
+getrandom = "0.4"
+hex = "0.4"
+image = { version = "0.25", default-features = false, features = ["png", "pnm"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "time", "signal", "sync"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+usage = { package = "usage-rs", version = "6", features = ["completions"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+usage = { package = "usage-rs", version = "6", features = ["test"] }

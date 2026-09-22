@@ -3,7 +3,7 @@ use std::process::{Command, Output, Stdio};
 
 fn sdk_bytes(name: &str) -> Vec<u8> {
     let corpus: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/sdk/framing.json")).unwrap();
+        serde_json::from_str(include_str!("../../tests/fixtures/sdk/framing.json")).unwrap();
     let vector = corpus["vectors"]
         .as_array()
         .unwrap()
@@ -129,7 +129,7 @@ fn invalid_info_arguments_fail_before_touching_bluetooth() {
 #[test]
 fn image_command_emits_sdk_job_from_pnm_without_status_text() {
     let corpus: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/sdk/image.json")).unwrap();
+        serde_json::from_str(include_str!("../../tests/fixtures/sdk/image.json")).unwrap();
     let fixture = corpus["raster_vectors"]
         .as_array()
         .unwrap()
@@ -178,7 +178,7 @@ fn transparent_png_is_composited_on_white_for_the_image_command() {
         String::from_utf8_lossy(&output.stderr)
     );
     let corpus: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/sdk/image.json")).unwrap();
+        serde_json::from_str(include_str!("../../tests/fixtures/sdk/image.json")).unwrap();
     let fixture = corpus["image_vectors"]
         .as_array()
         .unwrap()

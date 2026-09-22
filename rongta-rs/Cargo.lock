@@ -1033,23 +1033,39 @@ name = "rongta"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bluer",
  "bytes",
- "confique",
  "crc",
  "deku",
- "dialoguer",
- "directories",
- "futures-util",
- "getrandom 0.4.3",
  "hex",
  "image",
  "md-5",
  "proptest",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "rongta-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bluer",
+ "bytes",
+ "confique",
+ "dialoguer",
+ "directories",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "image",
+ "rongta",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
  "toml",

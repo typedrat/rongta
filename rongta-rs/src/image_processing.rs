@@ -1,6 +1,6 @@
 //! R22 physical-label geometry, separate from wire raster packing.
 use crate::{
-    configuration::Media,
+    media::Media,
     monochrome::{self, Conversion},
     raster::Raster,
 };
