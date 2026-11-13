@@ -27,7 +27,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 usage = { package = "usage-rs", version = "6", features = ["completions"] }
 
 [dev-dependencies]
-image = { version = "0.25", default-features = false, features = ["png"] }
 tokio = { version = "1", features = ["test-util"] }
 toml = "0.9"
 usage = { package = "usage-rs", version = "6", features = ["test"] }

@@ -31,7 +31,7 @@
           commonArgs = {
             src = pkgs.lib.cleanSourceWith {
               src = ./rongta-rs;
-              # Tests embed JSON fixtures; the template and GUI crates embed fonts.
+              # Tests embed JSON fixtures; the template crate embeds fonts and an example.
               filter =
                 path: type:
                 craneLib.filterCargoSources path type
