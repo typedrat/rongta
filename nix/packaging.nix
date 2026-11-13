@@ -138,12 +138,137 @@
             dd if=runtime of=$out conv=notrunc status=none
             chmod 755 $out
           '';
+
+      # Rust's windows-gnu target expects the msvcrt C runtime, not UCRT.
+      pkgsWindows = import inputs.nixpkgs {
+        localSystem = system;
+        crossSystem = {
+          config = "x86_64-w64-mingw32";
+          libc = "msvcrt";
+        };
+      };
+      # fenix ships a prebuilt Windows std; nixpkgs would compile one from source.
+      windowsToolchain =
+        let
+          f = inputs.fenix.packages.${system};
+        in
+        f.combine [
+          f.stable.cargo
+          f.stable.rustc
+          f.targets.x86_64-pc-windows-gnu.stable.rust-std
+        ];
+      craneWindows = (inputs.crane.mkLib pkgsWindows).overrideToolchain (_: windowsToolchain);
+      windowsArgs = {
+        inherit (commonArgs) src;
+        strictDeps = true;
+        pname = "rongta-gui";
+        cargoExtraArgs = "--locked -p rongta-gui";
+        CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu";
+        # Tests run natively on Linux; a Windows test binary can't run here.
+        doCheck = false;
+      };
+      windowsExe = craneWindows.buildPackage (
+        windowsArgs
+        // {
+          cargoArtifacts = craneWindows.buildDepsOnly windowsArgs;
+          # The default strip removes only debug info; a PE's COFF symbol
+          # table is another third of the file and nothing reads it in a GUI
+          # build.
+          stripAllList = [ "bin" ];
+        }
+      );
+      # Anything outside this list must ship beside the .exe or be rejected.
+      windowsSystemDlls = lib.concatStringsSep "|" [
+        "advapi32"
+        "bcrypt"
+        "bcryptprimitives"
+        "bluetoothapis"
+        "cfgmgr32"
+        "combase"
+        "comctl32"
+        "comdlg32"
+        "crypt32"
+        "d3d12"
+        "d3dcompiler_47"
+        "dwmapi"
+        "dwrite"
+        "dxgi"
+        "gdi32"
+        "hid"
+        "imm32"
+        "kernel32"
+        "msvcrt"
+        "ntdll"
+        "ole32"
+        "oleaut32"
+        "opengl32"
+        "powrprof"
+        "propsys"
+        "rpcrt4"
+        "secur32"
+        "setupapi"
+        "shell32"
+        "shlwapi"
+        "synchronization"
+        "uiautomationcore"
+        "user32"
+        "userenv"
+        "uxtheme"
+        "version"
+        "winmm"
+        "ws2_32"
+        "api-ms-win-[a-z0-9-]+"
+      ];
+      windowsRuntimeDlls = with pkgsWindows.windows; [
+        mcfgthreads
+        pthreads
+      ];
+      windowsZip =
+        pkgs.runCommand "Rongta-Labels-windows-x86_64.zip"
+          {
+            nativeBuildInputs = [
+              pkgs.zip
+              pkgsWindows.buildPackages.binutils
+            ];
+            # A zip that mentions /nix/store would only work next to Nix.
+            allowedReferences = [ ];
+          }
+          ''
+            dir="Rongta Labels"
+            mkdir "$dir"
+            cp ${windowsExe}/bin/rongta-gui.exe "$dir/Rongta Labels.exe"
+            mkdir "$dir/licenses"
+            cp ${fontLicenses}/* "$dir/licenses/"
+            for dll in $(x86_64-w64-mingw32-objdump -p "$dir/Rongta Labels.exe" \
+                | awk '/DLL Name:/ { print tolower($3) }'); do
+              # Win32's Bluetooth device APIs are imported from bthprops.cpl.
+              if echo "$dll" | grep -Eqx '(${windowsSystemDlls})\.dll|bthprops\.cpl'; then
+                continue
+              fi
+              found=$(find ${lib.concatMapStringsSep " " (d: "${d}") windowsRuntimeDlls} \
+                -iname "$dll" -print -quit)
+              if [ -z "$found" ]; then
+                echo "rongta-gui.exe imports $dll, which is neither a Windows system DLL nor bundled" >&2
+                exit 1
+              fi
+              cp "$found" "$dir/"
+            done
+            # zip records each file's mtime, and the oldest date it can store
+            # is 1980; pinning one keeps the archive reproducible.
+            find "$dir" -exec touch -d 1980-01-01T00:00:00Z {} +
+            find "$dir" -print | LC_ALL=C sort | zip -X -@ $out
+          '';
     in
     {
-      packages = lib.optionalAttrs isLinux {
-        rongta-gui-portable = portable;
-        rongta-gui-appimage = appImage;
-      };
+      packages =
+        lib.optionalAttrs isLinux {
+          rongta-gui-portable = portable;
+          rongta-gui-appimage = appImage;
+        }
+        // lib.optionalAttrs (system == "x86_64-linux") {
+          rongta-gui-windows-exe = windowsExe;
+          rongta-gui-windows = windowsZip;
+        };
       checks = lib.optionalAttrs isLinux {
         rongta-gui-portable = portableCheck;
       };
