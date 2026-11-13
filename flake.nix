@@ -35,7 +35,12 @@
               filter =
                 path: type:
                 craneLib.filterCargoSources path type
-                || pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) [ ".json" ".ttf" ".toml" ".png" ];
+                || pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) [
+                  ".json"
+                  ".ttf"
+                  ".toml"
+                  ".png"
+                ];
             };
             strictDeps = true;
             cargoExtraArgs = "--workspace";
@@ -67,6 +72,14 @@
               preCheck = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
                 export VK_DRIVER_FILES=${lavapipeIcd}
                 export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ]}
+              '';
+              # Preview textures sample a few pixels differently on the build
+              # machine's lavapipe than on the machine that recorded them.
+              cargoTestExtraArgs = "-- --skip snapshots::template_preview --skip snapshots::image_preview";
+              nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
+              postInstall = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                wrapProgram $out/bin/rongta-gui \
+                  --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath guiLibraries}
               '';
               cargoArtifacts = craneLib.buildDepsOnly commonArgs;
               meta.mainProgram = "rongta";
