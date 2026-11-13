@@ -7,19 +7,24 @@ command line. It has two tabs and a bar across the top:
 
 - **Template** opens a label template, shows a form with one input per field,
   and checks each value against the template's pattern as you type.
-- **Image** opens a picture and prints it, with the same layout, dither and
-  threshold choices as `rongta print`.
-- The **printer bar** scans for printers, picks one, and sets the loaded media.
-  A status bar at the bottom shows scan, connect and print progress.
+- **Image** opens a picture and prints it. It either fills the label or shows
+  the whole picture, in one of four styles: sharp black and white (threshold
+  208) for text and logos, two photo dithers, and a patterned one. The label
+  size defaults to the printer's saved media and can be typed in.
+- The **printer bar** scans for printers and picks one. A status bar at the
+  bottom shows connect and print progress.
 
 Settings are the CLI's own: the selected printer, model and media live in the
 same saved state file, so a printer chosen with `rongta settings` is already
-selected in the app, and the reverse. Bluetooth and printing go through
+selected in the app, and the reverse. The app only changes the printer; set the
+loaded media with `rongta settings`. Bluetooth and printing go through
 `rongta-host`, the same runner the CLI uses.
 
 The preview is the exact print raster, not an approximation. It is produced by
 the same code that builds the bytes sent to the printer, so margins, the
-printable-area crop and the monochrome conversion are what will come out.
+printable-area crop and the monochrome conversion are what will come out. It is
+drawn at a whole number of screen pixels per printer dot, so no dot is dropped
+or blurred; only a window too narrow for that shrinks it.
 
 ## Building
 
@@ -39,16 +44,16 @@ On Linux, winit and wgpu load the windowing and graphics libraries at run
 time. The dev shell puts them on `LD_LIBRARY_PATH`, and the Nix package wraps
 `rongta-gui` to do the same.
 
-Distributable artifacts (a macOS app, AppImages, a Windows zip) come from the
-distribution plan, which will fill in this section. Until then, on Windows,
-run `cargo build --release -p rongta-gui` on a machine with the MSVC
-toolchain and zip `rongta-gui.exe`. No console window opens, because the
-binary is built with `windows_subsystem`.
+Nothing builds AppImages, a Windows zip or a macOS app yet. On Windows, run
+`cargo build --release -p rongta-gui` on a machine with the MSVC toolchain and
+zip `rongta-gui.exe`. No console window opens, because the binary is built
+with `windows_subsystem`.
 
 ## Sending it to someone on a Mac
 
-The app is ad-hoc signed, not notarized, so macOS blocks it the first time.
-These are the macOS 15 and later steps to read out over the phone:
+There is no macOS app bundle yet. Once there is, it will be ad-hoc signed, not
+notarized, so macOS will block it the first time. These are the macOS 15 and
+later steps to read out over the phone:
 
 - Double-click the app. It's blocked; click **Done**. (Right-click, then Open,
   no longer works around this on macOS 15 and later.)
@@ -69,7 +74,8 @@ These are the macOS 15 and later steps to read out over the phone:
 The template format is described under Label templates in the
 [README](../README.md#label-templates). In the app, open a template with
 **Open...**, by dragging the file onto the window, or by passing its path as
-the first argument. The last is what "Open with" does on Windows and Linux.
+the first argument. The last is what "Open with" does on Windows. On Linux,
+"Open with" needs a `.desktop` entry, which nothing installs yet.
 
 ## Status
 
@@ -79,9 +85,16 @@ for the GUI and the CLI alike; their Bluetooth backends type-check in cross
 builds only.
 
 The UI itself is covered by headless egui_kittest snapshot tests. The
-snapshots are in `rongta-rs/gui/tests/snapshots/`, rendered with Mesa's
-lavapipe software Vulkan driver, and regenerated with:
+snapshots are in `rongta-rs/gui/tests/snapshots/` and are rendered with Mesa's
+lavapipe software Vulkan driver; the tests refuse to run on any other
+renderer, because a GPU draws a few pixels differently. In the dev shell,
+`gui-snapshots` runs the GUI tests with lavapipe as the only Vulkan driver,
+and re-records the images with:
 
 ```sh
-UPDATE_SNAPSHOTS=true cargo test -p rongta-gui
+UPDATE_SNAPSHOTS=force gui-snapshots
 ```
+
+Plain `cargo test` in the dev shell also finds lavapipe, which the shell adds
+alongside the GPU. The Nix package's checks run every snapshot test on the same
+lavapipe.
