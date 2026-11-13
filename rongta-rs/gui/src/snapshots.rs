@@ -14,7 +14,7 @@ use rongta::bluetooth::ScanDevice;
 use rongta_host::{bluetooth::Address, job::Stage};
 
 use crate::{
-    App, DEFAULT_HEIGHT, DEFAULT_WIDTH, MIN_HEIGHT, MIN_WIDTH, Status, errors::Problem,
+    App, Closing, DEFAULT_HEIGHT, DEFAULT_WIDTH, MIN_HEIGHT, MIN_WIDTH, Status, errors::Problem,
     image_tab::ImageTab, print_controls, printer::Printer, status_ui, template_tab::TemplateTab,
     theme, worker::Worker,
 };
@@ -441,6 +441,22 @@ fn whole_app() {
             });
         harness.run_steps(4);
         results.add(harness.try_snapshot(format!("app_image_minimum_{suffix}")));
+    }
+    // Closing was requested mid-print.
+    for (theme, suffix) in THEMES {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(DEFAULT_WIDTH, DEFAULT_HEIGHT))
+            .with_theme(theme)
+            .with_context_setup(theme::install)
+            .wgpu_setup(lavapipe())
+            .build_eframe(|_| {
+                let mut app = ready_app();
+                app.status = Status::Working(Stage::Printing);
+                app.closing = Closing::Asking;
+                app
+            });
+        harness.run_steps(4);
+        results.add(harness.try_snapshot(format!("app_closing_while_printing_{suffix}")));
     }
     for (name, size, pixels_per_point) in [
         (

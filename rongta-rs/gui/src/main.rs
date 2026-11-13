@@ -82,6 +82,63 @@ impl Status {
     }
 }
 
+/// Closing mid-print cuts the job off partway, so a close then waits for the
+/// person to confirm.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Closing {
+    #[default]
+    Open,
+    /// A close came in mid-print and the modal is asking about it.
+    Asking,
+    /// The next close request goes through, even mid-print.
+    Confirmed,
+}
+
+/// What to tell the window this frame.
+#[derive(Debug, PartialEq, Eq)]
+enum WindowCommand {
+    None,
+    CancelClose,
+    Close,
+}
+
+impl Closing {
+    /// `requested` is whether the window was asked to close this frame.
+    /// A print that ends while the modal is up settles the question: success
+    /// carries out the close the person asked for, while a failure keeps the
+    /// window open so they can see what went wrong.
+    fn frame(&mut self, requested: bool, status: &Status) -> WindowCommand {
+        let busy = matches!(status, Status::Working(_));
+        if requested {
+            if busy && *self != Closing::Confirmed {
+                *self = Closing::Asking;
+                WindowCommand::CancelClose
+            } else {
+                WindowCommand::None
+            }
+        } else if *self == Closing::Asking && !busy {
+            if matches!(status, Status::Printed) {
+                *self = Closing::Confirmed;
+                WindowCommand::Close
+            } else {
+                *self = Closing::Open;
+                WindowCommand::None
+            }
+        } else {
+            WindowCommand::None
+        }
+    }
+
+    fn keep_printing(&mut self) {
+        *self = Closing::Open;
+    }
+
+    fn close_anyway(&mut self) -> WindowCommand {
+        *self = Closing::Confirmed;
+        WindowCommand::Close
+    }
+}
+
 struct App {
     tab: Tab,
     worker: Worker,
@@ -89,6 +146,7 @@ struct App {
     copies: u16,
     density: u8,
     status: Status,
+    closing: Closing,
     template: template_tab::TemplateTab,
     image: image_tab::ImageTab,
 }
@@ -102,6 +160,7 @@ impl App {
             copies: 1,
             density: 8,
             status: Status::Ready,
+            closing: Closing::default(),
             template: Default::default(),
             image: Default::default(),
         }
@@ -160,7 +219,10 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    // eframe calls this, but not `ui`, while the window is minimized, and a
+    // close request that isn't cancelled here goes through. The print's
+    // progress has to be current then, too, to know whether it is busy.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         for event in self.worker.poll() {
             match event {
                 Event::Scanned(result) => self.printer.scanned(result),
@@ -171,6 +233,16 @@ impl eframe::App for App {
         }
         if self.image.poll() {
             self.status.edited();
+        }
+        let requested = ctx.input(|input| input.viewport().close_requested());
+        send(ctx, self.closing.frame(requested, &self.status));
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.closing == Closing::Asking {
+            let ctx = ui.ctx().clone();
+            let command = close_modal(&ctx, &mut self.closing);
+            send(&ctx, command);
         }
 
         let busy = self.busy();
@@ -235,6 +307,47 @@ impl eframe::App for App {
             }
         });
     }
+}
+
+fn send(ctx: &egui::Context, command: WindowCommand) {
+    match command {
+        WindowCommand::None => {}
+        WindowCommand::CancelClose => ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose),
+        WindowCommand::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+    }
+}
+
+/// Asks whether to close mid-print. Escape or a click outside counts as
+/// "Keep printing", the choice that loses nothing.
+fn close_modal(ctx: &egui::Context, closing: &mut Closing) -> WindowCommand {
+    let mut command = WindowCommand::None;
+    // A popup's margins are sized for menus; this is a dialog.
+    let frame = egui::Frame::window(&ctx.global_style());
+    let modal = egui::Modal::new(egui::Id::unique("close while printing"))
+        .frame(frame)
+        .show(ctx, |ui| {
+            ui.set_width(340.0);
+            ui.heading("A label is still printing");
+            ui.label("Closing now may leave a half-printed label.");
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let keep = theme::primary_button(ui, "Keep printing", true);
+                // Focused, Enter or Space picks the safe choice.
+                if ui.memory(|memory| memory.focused().is_none()) {
+                    keep.request_focus();
+                }
+                if keep.clicked() {
+                    closing.keep_printing();
+                }
+                if ui.button("Close anyway").clicked() {
+                    command = closing.close_anyway();
+                }
+            });
+        });
+    if *closing == Closing::Asking && modal.should_close() {
+        closing.keep_printing();
+    }
+    command
 }
 
 /// Splits the rest of `ui` into the form and, on the right, a preview column
@@ -355,6 +468,59 @@ mod tests {
         });
         status.edited();
         assert!(matches!(status, Status::Failed(_)));
+    }
+
+    #[test]
+    fn closing_when_idle_needs_no_confirmation() {
+        for status in [Status::Ready, Status::Printed] {
+            let mut closing = Closing::default();
+            assert_eq!(closing.frame(true, &status), WindowCommand::None);
+            assert_eq!(closing, Closing::Open);
+        }
+    }
+
+    #[test]
+    fn closing_mid_print_asks_first() {
+        let printing = Status::Working(Stage::Printing);
+        let mut closing = Closing::default();
+        assert_eq!(closing.frame(true, &printing), WindowCommand::CancelClose);
+        assert_eq!(closing, Closing::Asking);
+        // Asking stays up while the print runs, even if asked again.
+        assert_eq!(closing.frame(false, &printing), WindowCommand::None);
+        assert_eq!(closing.frame(true, &printing), WindowCommand::CancelClose);
+        assert_eq!(closing, Closing::Asking);
+
+        closing.keep_printing();
+        assert_eq!(closing, Closing::Open);
+        assert_eq!(closing.frame(false, &printing), WindowCommand::None);
+    }
+
+    #[test]
+    fn close_anyway_is_not_asked_about_again() {
+        let printing = Status::Working(Stage::Printing);
+        let mut closing = Closing::default();
+        closing.frame(true, &printing);
+        assert_eq!(closing.close_anyway(), WindowCommand::Close);
+        // The close that command causes arrives as a fresh request.
+        assert_eq!(closing.frame(true, &printing), WindowCommand::None);
+    }
+
+    #[test]
+    fn a_print_finishing_while_asking_closes_only_if_it_succeeded() {
+        let printing = Status::Working(Stage::Printing);
+        let mut closing = Closing::default();
+        closing.frame(true, &printing);
+        assert_eq!(closing.frame(false, &Status::Printed), WindowCommand::Close);
+        assert_eq!(closing.frame(true, &Status::Printed), WindowCommand::None);
+
+        let mut closing = Closing::default();
+        closing.frame(true, &printing);
+        let failed = Status::Failed(Problem {
+            summary: "x".into(),
+            details: "y".into(),
+        });
+        assert_eq!(closing.frame(false, &failed), WindowCommand::None);
+        assert_eq!(closing, Closing::Open, "the window stays to show why");
     }
 
     #[test]
