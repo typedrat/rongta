@@ -1,0 +1,23 @@
+version = 1
+name = "Access code"
+media = "gap:50x25"
+
+[[field]]
+id = "code"
+label = "Access code"
+hint = "6 to 12 letters or digits"
+pattern = "[A-Z0-9]{6,12}"
+case = "upper"
+
+[qr]
+content = "https://example.com/redeem?code={code}"
+error_correction = "M"
+
+[[text]]
+content = "Scan to redeem"
+size_mm = 3.0
+
+[[text]]
+content = "{code}"
+size_mm = 5.0
+bold = true

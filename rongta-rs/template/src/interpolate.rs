@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! `{field}` placeholders; `{{` and `}}` are literal braces.
 use anyhow::{Result, bail};
 
@@ -52,6 +51,7 @@ pub fn parse(source: &str) -> Result<Vec<Piece>> {
     Ok(pieces)
 }
 
+#[allow(dead_code)]
 pub fn fill(pieces: &[Piece], value: impl Fn(&str) -> String) -> String {
     pieces
         .iter()
