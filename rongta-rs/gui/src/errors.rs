@@ -1,6 +1,5 @@
 //! Errors phrased for the person at the printer, with the technical chain
 //! kept for anyone helping them.
-#![allow(dead_code)]
 
 #[derive(Clone, Debug)]
 pub struct Problem {

@@ -1,7 +1,6 @@
 //! Bluetooth work on its own thread, so the window keeps drawing while a scan
 //! or print takes seconds. Discovery futures aren't `Send`, so the thread runs
 //! a current-thread runtime and blocks on one request at a time.
-#![allow(dead_code)]
 
 use crate::errors::Problem;
 use anyhow::Result;
@@ -28,6 +27,8 @@ use std::{
 const SCAN_TIME: Duration = Duration::from_secs(8);
 const PRINT_TIMEOUT: Duration = Duration::from_secs(60);
 
+// Constructed by the template and image tabs, which aren't wired in yet.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub enum Job {
     Template {
@@ -110,6 +111,14 @@ impl Worker {
                 }
             })
             .expect("starting the Bluetooth thread");
+        Self { requests, events }
+    }
+
+    /// A worker with no thread behind it, for drawing UI without Bluetooth.
+    #[cfg(test)]
+    pub fn detached() -> Self {
+        let (requests, _) = mpsc::channel();
+        let (_, events) = mpsc::channel();
         Self { requests, events }
     }
 

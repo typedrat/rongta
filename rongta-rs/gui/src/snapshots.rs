@@ -4,8 +4,10 @@
 
 use eframe::egui;
 use egui_kittest::{Harness, SnapshotResults};
+use rongta::bluetooth::ScanDevice;
+use rongta_host::{bluetooth::Address, job::Stage};
 
-use crate::{theme, theme_demo};
+use crate::{Status, errors::Problem, print_controls, printer::Printer, status_ui, theme};
 
 /// Builds a harness that renders `ui` offscreen with the app theme installed.
 pub fn harness<'a>(
@@ -33,5 +35,112 @@ fn theme_demo_in_both_themes() {
         });
         harness.run();
         results.add(harness.try_snapshot(name));
+    }
+}
+
+/// A card exercising the theme's main surfaces, text styles and button.
+fn theme_demo(ui: &mut egui::Ui) {
+    theme::card(ui, |ui| {
+        ui.heading("Rongta Labels");
+        ui.label("Theme check");
+        ui.label(egui::RichText::new("Secondary text").color(theme::palette(ui).muted));
+        let _ = theme::primary_button(ui, "Print", true);
+    });
+}
+
+const THEMES: [(egui::Theme, &str); 2] =
+    [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")];
+
+fn device(address: &str, name: &str) -> ScanDevice<Address> {
+    ScanDevice {
+        address: address.parse().unwrap(),
+        name: Some(name.into()),
+        rssi: None,
+        class: None,
+        paired: true,
+        connected: false,
+        spp: Some(true),
+        known_before_scan: true,
+    }
+}
+
+fn snapshot(
+    results: &mut SnapshotResults,
+    name: &str,
+    size: egui::Vec2,
+    mut ui: impl FnMut(&mut egui::Ui),
+) {
+    for (theme, suffix) in THEMES {
+        let mut harness = harness(size, theme, |u| {
+            egui::CentralPanel::default().show(u, &mut ui);
+        });
+        // A fixed step count rather than `run`, which never settles while the
+        // working status animates a spinner.
+        harness.run_steps(4);
+        results.add(harness.try_snapshot(format!("{name}_{suffix}")));
+    }
+}
+
+#[test]
+fn printer_bar() {
+    let mut results = SnapshotResults::new();
+    let devices = vec![
+        device("AA:BB:CC:DD:EE:FF", "R22_1A2B"),
+        device("11:22:33:44:55:66", "Other printer"),
+    ];
+    let selected = devices[0].address;
+    let mut chosen = Printer::for_test(devices.clone(), Some(selected), None);
+    let worker = crate::worker::Worker::detached();
+    snapshot(&mut results, "printer_bar", egui::vec2(560.0, 60.0), |ui| {
+        chosen.ui(ui, &worker);
+    });
+    let problem = Problem {
+        summary: "Couldn't find any printers. Check that Bluetooth is on.".into(),
+        details: "adapter not found".into(),
+    };
+    let mut failed = Printer::for_test(Vec::new(), None, Some(problem));
+    snapshot(
+        &mut results,
+        "printer_bar_problem",
+        egui::vec2(560.0, 80.0),
+        |ui| {
+            failed.ui(ui, &worker);
+        },
+    );
+}
+
+#[test]
+fn status_bar() {
+    let mut results = SnapshotResults::new();
+    let failed = Status::Failed(Problem {
+        summary: "Couldn't reach the printer. Check that it is on and nearby.".into(),
+        details: "Timed out connecting".into(),
+    });
+    let cases = [
+        ("status_ready", Status::Ready),
+        ("status_working", Status::Working(Stage::Printing)),
+        ("status_printed", Status::Printed),
+        ("status_failed", failed),
+    ];
+    for (name, status) in cases {
+        snapshot(&mut results, name, egui::vec2(480.0, 76.0), |ui| {
+            status_ui(ui, &status);
+        });
+    }
+}
+
+#[test]
+fn print_card() {
+    let mut results = SnapshotResults::new();
+    for (name, ready, has_printer) in [
+        ("print_card_ready", true, true),
+        ("print_card_no_printer", false, false),
+    ] {
+        let (mut copies, mut density) = (2, 8);
+        snapshot(&mut results, name, egui::vec2(480.0, 160.0), |ui| {
+            theme::card(ui, |ui| {
+                print_controls(ui, &mut copies, &mut density, ready, has_printer);
+            });
+        });
     }
 }
