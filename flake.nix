@@ -12,12 +12,29 @@
       url = "github:numtide/devshell";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-appimage = {
+      url = "github:ralismark/nix-appimage";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    github-actions-nix = {
+      url = "https://flakehub.com/f/synapdeck/github-actions-nix/*";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
-      imports = [ inputs.devshell.flakeModule ];
+      imports = [
+        inputs.devshell.flakeModule
+        inputs.github-actions-nix.flakeModules.default
+        ./nix/packaging.nix
+        ./nix/ci.nix
+      ];
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -28,10 +45,12 @@
         { pkgs, system, ... }:
         let
           craneLib = inputs.crane.mkLib pkgs;
+          rongtaIcon = pkgs.callPackage ./nix/icon.nix { };
           commonArgs = {
             src = pkgs.lib.cleanSourceWith {
               src = ./rongta-rs;
-              # Tests embed JSON fixtures; the template crate embeds fonts and an example.
+              # Tests embed JSON fixtures; the template crate embeds fonts and an
+              # example; the GUI's icon source sits beside its crate.
               filter =
                 path: type:
                 craneLib.filterCargoSources path type
@@ -40,6 +59,7 @@
                   ".ttf"
                   ".toml"
                   ".png"
+                  ".svg"
                 ];
             };
             strictDeps = true;
@@ -47,6 +67,8 @@
             nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.pkg-config ];
             # BlueZ is reached over D-Bus; macOS links its system frameworks instead.
             buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
+            # The GUI's build script embeds this as the window icon.
+            RONGTA_ICON_PNG = "${rongtaIcon}/png/256.png";
           };
           # winit and wgpu dlopen these at run time rather than linking them.
           guiLibraries = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
@@ -64,6 +86,7 @@
           );
           # Mesa's software Vulkan driver, named by architecture.
           lavapipeIcd = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           rongta = craneLib.buildPackage (
             commonArgs
             // {
@@ -79,7 +102,7 @@
                 wrapProgram $out/bin/rongta-gui \
                   --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath guiLibraries}
               '';
-              cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+              inherit cargoArtifacts;
               meta.mainProgram = "rongta";
             }
           );
@@ -108,8 +131,20 @@
             };
           };
 
+          # Shared with the nix/*.nix modules so packaging reuses one dependency build.
+          _module.args.rongtaBuild = {
+            inherit
+              craneLib
+              commonArgs
+              cargoArtifacts
+              rongta
+              rongtaIcon
+              ;
+          };
+
           packages = {
             inherit rongta;
+            rongta-icon = rongtaIcon;
             default = rongta;
           };
 
@@ -154,6 +189,10 @@
                   {
                     name = "LD_LIBRARY_PATH";
                     prefix = pkgs.lib.makeLibraryPath guiLibraries;
+                  }
+                  {
+                    name = "RONGTA_ICON_PNG";
+                    value = commonArgs.RONGTA_ICON_PNG;
                   }
                 ];
 
@@ -272,6 +311,10 @@
                   {
                     name = "RUST_SRC_PATH";
                     value = "${pkgs.rustPlatform.rustLibSrc}";
+                  }
+                  {
+                    name = "RONGTA_ICON_PNG";
+                    value = commonArgs.RONGTA_ICON_PNG;
                   }
                 ];
               };

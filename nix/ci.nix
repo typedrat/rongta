@@ -1,0 +1,267 @@
+{ ... }:
+{
+  perSystem =
+    {
+      config,
+      pkgs,
+      lib,
+      system,
+      ...
+    }:
+    let
+      checkout = {
+        name = "Check out";
+        uses = "actions/checkout@v4";
+      };
+      installNix = {
+        name = "Install Nix";
+        uses = "DeterminateSystems/determinate-nix-action@v3";
+      };
+      # Keyed on the job and the Nix inputs (flake files and Cargo.lock), not on
+      # Rust sources. A stale hit is fine because the cache only speeds up the
+      # build; Nix still rebuilds whatever changed. The label keeps jobs from
+      # fighting over one key, since only the first job to finish saves it.
+      cache = label: {
+        name = "Nix store cache";
+        uses = "nix-community/cache-nix-action@v6";
+        with_ = {
+          primary-key = "nix-${label}-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}";
+          restore-prefixes-first-match = "nix-${label}-\${{ runner.os }}-\${{ runner.arch }}-";
+          gc-max-store-size-linux = "8G";
+          gc-max-store-size-macos = "8G";
+        };
+      };
+      setup = label: [
+        checkout
+        installNix
+        (cache label)
+      ];
+      upload = name: path: {
+        name = "Upload ${name}";
+        uses = "actions/upload-artifact@v4";
+        with_ = {
+          inherit name path;
+          if-no-files-found = "error";
+        };
+      };
+    in
+    {
+      githubActions = {
+        enable = true;
+        workflows.ci = {
+          name = "CI";
+          on = {
+            push = {
+              branches = [ "master" ];
+              tags = [ "v*" ];
+            };
+            pullRequest = { };
+            workflowDispatch = { };
+          };
+          concurrency = {
+            group = "\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}";
+            cancelInProgress = true;
+          };
+          permissions.contents = "read";
+
+          jobs = {
+            check = {
+              name = "Tests and checks";
+              runsOn = "ubuntu-24.04";
+              steps = setup "check" ++ [
+                {
+                  # flake check only evaluates packages, so building rongta is
+                  # what runs the unit and GUI snapshot tests (doCheck, on
+                  # lavapipe in the sandbox).
+                  name = "Build and test rongta";
+                  run = "nix build -L .#rongta";
+                }
+                {
+                  name = "nix flake check";
+                  run = "nix flake check -L";
+                }
+              ];
+            };
+
+            linux = {
+              name = "AppImage (\${{ matrix.arch }})";
+              runsOn = "\${{ matrix.runner }}";
+              strategy = {
+                failFast = false;
+                matrix.include = [
+                  {
+                    arch = "x86_64";
+                    runner = "ubuntu-24.04";
+                  }
+                  {
+                    arch = "aarch64";
+                    runner = "ubuntu-24.04-arm";
+                  }
+                ];
+              };
+              steps = setup "linux-\${{ matrix.arch }}" ++ [
+                {
+                  name = "Build";
+                  run = ''
+                    nix build -L .#rongta-gui-appimage
+                    cp -L result "Rongta-Labels-''${{ matrix.arch }}.AppImage"
+                  '';
+                }
+                {
+                  # Exercises the real FUSE mount path, as a double-click would.
+                  name = "Smoke test on the runner";
+                  run = ''
+                    sudo apt-get -qq update >/dev/null
+                    sudo apt-get -qq install -y fuse3 libdbus-1-3 >/dev/null
+                    "./Rongta-Labels-''${{ matrix.arch }}.AppImage" --version
+                  '';
+                }
+                {
+                  # The oldest supported glibc, today's Ubuntu LTS, and current
+                  # Fedora; containers have no FUSE, so extract instead.
+                  name = "Smoke test on other distros";
+                  run = ''
+                    for image in debian:10 ubuntu:24.04 fedora:latest; do
+                      echo "::group::$image"
+                      docker run --rm -e APPIMAGE_EXTRACT_AND_RUN=1 \
+                        -v "$PWD/Rongta-Labels-''${{ matrix.arch }}.AppImage:/app.AppImage:ro" \
+                        "docker.io/library/$image" sh -c '
+                          set -e
+                          grep -qs "^10" /etc/debian_version && echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
+                          if command -v apt-get >/dev/null; then
+                            apt-get -qq -o Acquire::Check-Valid-Until=false update >/dev/null && apt-get -qq install -y libdbus-1-3 >/dev/null
+                          else
+                            dnf -q -y install dbus-libs >/dev/null
+                          fi
+                          /app.AppImage --version'
+                      echo "::endgroup::"
+                    done
+                  '';
+                }
+                (upload "Rongta-Labels-\${{ matrix.arch }}.AppImage" "Rongta-Labels-\${{ matrix.arch }}.AppImage")
+              ];
+            };
+
+            windows-build = {
+              name = "Windows zip (cross-compiled)";
+              runsOn = "ubuntu-24.04";
+              steps = setup "windows-build" ++ [
+                {
+                  name = "Build";
+                  run = ''
+                    nix build -L .#rongta-gui-windows
+                    cp -L result Rongta-Labels-windows-x86_64.zip
+                  '';
+                }
+                (upload "Rongta-Labels-windows-x86_64.zip" "Rongta-Labels-windows-x86_64.zip")
+              ];
+            };
+
+            windows-smoke = {
+              name = "Windows smoke test";
+              runsOn = "windows-latest";
+              needs = [ "windows-build" ];
+              steps = [
+                {
+                  name = "Download";
+                  uses = "actions/download-artifact@v4";
+                  with_.name = "Rongta-Labels-windows-x86_64.zip";
+                }
+                {
+                  name = "Run --version";
+                  shell = "pwsh";
+                  run = ''
+                    Expand-Archive Rongta-Labels-windows-x86_64.zip -DestinationPath out
+                    # A GUI-subsystem exe has no console; redirect to see its output.
+                    $p = Start-Process -FilePath "out/Rongta Labels/Rongta Labels.exe" -ArgumentList "--version" -Wait -NoNewWindow -PassThru -RedirectStandardOutput version.txt
+                    Get-Content version.txt
+                    if ($p.ExitCode -ne 0 -or -not (Select-String -Path version.txt -Pattern '^rongta-gui ')) { exit 1 }
+                  '';
+                }
+              ];
+            };
+
+            macos = {
+              name = "macOS app (arm64)";
+              runsOn = "macos-latest";
+              steps = setup "macos" ++ [
+                {
+                  name = "Build";
+                  run = ''
+                    nix build -L .#rongta-gui-macos
+                    cp -L result Rongta-Labels-macos-arm64.zip
+                  '';
+                }
+                {
+                  name = "Verify signature and run --version";
+                  run = ''
+                    ditto -x -k Rongta-Labels-macos-arm64.zip out
+                    codesign --verify --deep --strict --verbose=2 "out/Rongta Labels.app"
+                    if otool -L "out/Rongta Labels.app/Contents/MacOS/rongta-gui" | grep -q /nix/store; then
+                      echo "binary links into /nix/store" >&2
+                      exit 1
+                    fi
+                    "out/Rongta Labels.app/Contents/MacOS/rongta-gui" --version
+                  '';
+                }
+                (upload "Rongta-Labels-macos-arm64.zip" "Rongta-Labels-macos-arm64.zip")
+              ];
+            };
+
+            release = {
+              name = "Release";
+              if_ = "startsWith(github.ref, 'refs/tags/v')";
+              needs = [
+                "check"
+                "linux"
+                "windows-smoke"
+                "macos"
+              ];
+              runsOn = "ubuntu-24.04";
+              permissions.contents = "write";
+              steps = [
+                {
+                  name = "Download artifacts";
+                  uses = "actions/download-artifact@v4";
+                  with_ = {
+                    path = "artifacts";
+                    merge-multiple = true;
+                  };
+                }
+                {
+                  name = "Create release";
+                  env.GH_TOKEN = "\${{ github.token }}";
+                  run = ''gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes artifacts/*'';
+                }
+              ];
+            };
+          };
+        };
+      };
+
+      apps.write-workflows = {
+        type = "app";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "write-workflows";
+            runtimeInputs = [ pkgs.git ];
+            text = ''
+              root=$(git rev-parse --show-toplevel)
+              mkdir -p "$root/.github/workflows"
+              install -m 644 ${config.githubActions.workflowsDir}/*.yml "$root/.github/workflows/"
+            '';
+          }
+        );
+      };
+
+      checks = lib.optionalAttrs (system == "x86_64-linux") {
+        workflows-current = pkgs.runCommand "workflows-current" { } ''
+          if ! diff -ru ${../.github/workflows} ${config.githubActions.workflowsDir}; then
+            echo "Generated workflows changed; run: nix run .#write-workflows" >&2
+            exit 1
+          fi
+          touch $out
+        '';
+      };
+    };
+}

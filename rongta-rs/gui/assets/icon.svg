@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5EC8B8"/>
+      <stop offset="1" stop-color="#0F6E66"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E9E4DC"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F4F2EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+
+  <!-- Label curling up out of the printer -->
+  <g>
+    <path d="M150 262 L150 92 Q150 56 186 56 L326 56 Q362 56 362 92 L362 262 Z"
+          fill="url(#paper)" stroke="#1E1C19" stroke-width="12" stroke-linejoin="round"/>
+    <!-- Tiny QR: three finder squares and a few modules -->
+    <g fill="#1E1C19">
+      <rect x="182" y="84" width="52" height="52" rx="8"/>
+      <rect x="278" y="84" width="52" height="52" rx="8"/>
+      <rect x="182" y="164" width="52" height="52" rx="8"/>
+      <rect x="254" y="164" width="22" height="22" rx="4"/>
+      <rect x="290" y="196" width="22" height="22" rx="4"/>
+      <rect x="306" y="160" width="22" height="22" rx="4"/>
+    </g>
+    <g fill="#FFFFFF">
+      <rect x="194" y="96" width="28" height="28" rx="4"/>
+      <rect x="290" y="96" width="28" height="28" rx="4"/>
+      <rect x="194" y="176" width="28" height="28" rx="4"/>
+    </g>
+    <g fill="#1E1C19">
+      <rect x="201" y="103" width="14" height="14" rx="2"/>
+      <rect x="297" y="103" width="14" height="14" rx="2"/>
+      <rect x="201" y="183" width="14" height="14" rx="2"/>
+    </g>
+  </g>
+
+  <!-- Printer body -->
+  <rect x="88" y="236" width="336" height="184" rx="44"
+        fill="url(#body)" stroke="#1E1C19" stroke-width="12"/>
+  <!-- Paper slot -->
+  <rect x="134" y="256" width="244" height="22" rx="11" fill="#1E1C19"/>
+  <!-- A happy little face -->
+  <g fill="#1E1C19">
+    <circle cx="206" cy="332" r="13"/>
+    <circle cx="306" cy="332" r="13"/>
+  </g>
+  <path d="M226 362 Q256 390 286 362" fill="none" stroke="#1E1C19"
+        stroke-width="12" stroke-linecap="round"/>
+  <!-- Cheeks -->
+  <g fill="#F28B82" opacity="0.85">
+    <ellipse cx="170" cy="362" rx="18" ry="11"/>
+    <ellipse cx="342" cy="362" rx="18" ry="11"/>
+  </g>
+  <!-- Status light -->
+  <circle cx="384" cy="388" r="11" fill="#5EC8B8" stroke="#1E1C19" stroke-width="6"/>
+</svg>
