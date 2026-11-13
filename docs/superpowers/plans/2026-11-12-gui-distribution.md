@@ -412,6 +412,13 @@ block and `packages` attrset.
           '';
 
       appImageRuntime = inputs.nix-appimage.packages.${system}.appimage-runtimes.appimage-type2-runtime;
+      # Label text uses Atkinson Hyperlegible Next and the UI uses Inter; the
+      # OFL requires their licenses to ship with any copy of the fonts.
+      fontLicenses = pkgs.runCommand "rongta-font-licenses" { } ''
+        mkdir $out
+        cp ${../rongta-rs/template/fonts/OFL.txt} $out/AtkinsonHyperlegibleNext-OFL.txt
+        cp ${../rongta-rs/gui/fonts/LICENSE.txt} $out/Inter-OFL.txt
+      '';
       desktopEntry = pkgs.writeText "rongta-labels.desktop" ''
         [Desktop Entry]
         Type=Application
@@ -433,6 +440,9 @@ block and `packages` attrset.
             # The runtime mounts the image and executes AppRun from it.
             ln -s usr/bin/rongta-gui AppDir/AppRun
             cp ${desktopEntry} AppDir/rongta-labels.desktop
+            # The SIL OFL requires each bundled font's license to travel with it.
+            mkdir -p AppDir/usr/share/licenses/rongta-labels
+            cp ${fontLicenses}/* AppDir/usr/share/licenses/rongta-labels/
             # A type 2 AppImage is the runtime followed directly by a squashfs.
             offset=$(stat -L -c%s ${appImageRuntime})
             mksquashfs AppDir $out -offset "$offset" -all-root -noappend -no-xattrs -quiet
@@ -615,6 +625,8 @@ And in `packages`, add:
               dir="Rongta Labels"
               mkdir "$dir"
               cp ${windowsExe}/bin/rongta-gui.exe "$dir/Rongta Labels.exe"
+              mkdir "$dir/licenses"
+              cp ${fontLicenses}/* "$dir/licenses/"
               for dll in $(x86_64-w64-mingw32-objdump -p "$dir/Rongta Labels.exe" \
                   | awk '/DLL Name:/ { print tolower($3) }'); do
                 # Win32's Bluetooth device APIs are imported from bthprops.cpl.
@@ -712,6 +724,8 @@ In `packages`, add:
               chmod u+w "$bin"
               substitute ${../rongta-rs/gui/packaging/macos/Info.plist} "$app/Contents/Info.plist" \
                 --replace-fail @VERSION@ ${rongtaBuild.rongta.version}
+              mkdir -p "$app/Contents/Resources/licenses"
+              cp ${fontLicenses}/* "$app/Contents/Resources/licenses/"
 
               # nixpkgs links a few system libraries by store path; macOS ships
               # the same ones in /usr/lib.
