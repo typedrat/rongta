@@ -18,6 +18,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "ti
 toml = "0.9"
 tracing = "0.1"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
 
