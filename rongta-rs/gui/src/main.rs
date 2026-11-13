@@ -49,12 +49,48 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx);
             let mut app = App::with(Worker::spawn(cc.egui_ctx.clone()), Printer::load());
-            if let Some(path) = template_path {
-                app.template.open(path);
+            let remembered = cc
+                .storage
+                .and_then(|storage| eframe::get_value::<Option<PathBuf>>(storage, LAST_TEMPLATE))
+                .flatten();
+            app.template = template_tab::TemplateTab::new(template_copies(), remembered.clone());
+            match startup(template_path, remembered) {
+                Startup::Open(path) => app.template.open(path),
+                Startup::Reopen(path) => app.template.reopen(path),
+                Startup::Empty => {}
             }
             Ok(Box::new(app))
         }),
     )
+}
+
+/// The eframe storage key for the template to reopen at start. Only the path
+/// is kept, never what was typed: access codes differ per label, and one left
+/// filled in could print a duplicate.
+const LAST_TEMPLATE: &str = "last_template";
+
+/// Where the app keeps its own copy of each template opened, under the same
+/// project folders as the CLI's settings.
+fn template_copies() -> Option<PathBuf> {
+    directories::ProjectDirs::from("", "", "rongta").map(|dirs| dirs.data_dir().join("templates"))
+}
+
+/// Which template, if any, the window starts with.
+#[derive(Debug, PartialEq, Eq)]
+enum Startup {
+    Open(PathBuf),
+    Reopen(PathBuf),
+    Empty,
+}
+
+/// A file named on the command line, which is also how "Open with" arrives,
+/// is what the person asked for just now, so it beats last time's template.
+fn startup(argument: Option<PathBuf>, remembered: Option<PathBuf>) -> Startup {
+    match (argument, remembered) {
+        (Some(path), _) => Startup::Open(path),
+        (None, Some(path)) => Startup::Reopen(path),
+        (None, None) => Startup::Empty,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -261,6 +297,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, LAST_TEMPLATE, &self.template.remembered());
+    }
+
     // eframe calls this, but not `ui`, while the window is minimized, and a
     // close request that isn't cancelled here goes through. The print's
     // progress has to be current then, too, to know whether it is busy.
@@ -516,6 +556,25 @@ mod tests {
         });
         status.edited();
         assert!(matches!(status, Status::Failed(_)));
+    }
+
+    #[test]
+    fn a_file_argument_wins_over_the_remembered_template() {
+        let argument = PathBuf::from("/downloads/badge.rongta.toml");
+        let remembered = PathBuf::from("/data/templates/access-code.rongta.toml");
+        assert_eq!(
+            startup(Some(argument.clone()), Some(remembered.clone())),
+            Startup::Open(argument.clone())
+        );
+        assert_eq!(
+            startup(Some(argument.clone()), None),
+            Startup::Open(argument)
+        );
+        assert_eq!(
+            startup(None, Some(remembered.clone())),
+            Startup::Reopen(remembered)
+        );
+        assert_eq!(startup(None, None), Startup::Empty);
     }
 
     #[test]

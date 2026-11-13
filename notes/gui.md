@@ -77,6 +77,16 @@ The template format is described under Label templates in the
 the first argument. The last is what "Open with" does on Windows. On Linux,
 "Open with" needs a `.desktop` entry, which nothing installs yet.
 
+The app keeps its own copy of each template it opens and reopens the last one
+at start, so the template still works after the emailed original is moved or
+deleted. The copies are in the `templates` folder of rongta's data folder:
+`~/.local/share/rongta/templates` on Linux (or under `$XDG_DATA_HOME`),
+`~/Library/Application Support/rongta/templates` on macOS, and
+`%APPDATA%\rongta\data\templates` on Windows. Only which template was open is
+remembered. Typed values are not, since each label's access code is different
+and one left filled in could print a duplicate. A file passed on the command
+line opens instead of the remembered one.
+
 ## Status
 
 The GUI has not been run against a printer on any platform yet. Only the CLI

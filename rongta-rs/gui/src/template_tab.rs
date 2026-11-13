@@ -7,7 +7,10 @@ use crate::{
 };
 use eframe::egui;
 use rongta_template::{Template, Values};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 /// Layout failures whose message already names, in plain words, the text
 /// that has to change.
@@ -25,6 +28,13 @@ pub struct TemplateTab {
     load_problem: Option<Problem>,
     /// Keyed by the normalized values; opening a template clears it.
     preview: Preview<Values>,
+    /// Where opened templates are copied, so the app can reopen them after
+    /// the original is moved or deleted. `None` keeps no copies.
+    copies: Option<PathBuf>,
+    /// The template to reopen at the next start.
+    remembered: Option<PathBuf>,
+    /// A muted aside about the copy or the remembered template.
+    note: Option<String>,
 }
 
 fn render_problem(error: &anyhow::Error) -> Problem {
@@ -42,19 +52,61 @@ fn render_problem(error: &anyhow::Error) -> Problem {
     Problem::new(summary, error)
 }
 
+/// Copies `source` into `copies` under its own name, replacing an older copy,
+/// and returns the copy's path.
+fn keep_copy(copies: &Path, source: &Path) -> std::io::Result<PathBuf> {
+    let name = source
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("the template path has no file name"))?;
+    let copy = copies.join(name);
+    // A template reopened at start is already the copy.
+    if let (Ok(source), Ok(existing)) = (source.canonicalize(), copy.canonicalize())
+        && source == existing
+    {
+        return Ok(copy);
+    }
+    std::fs::create_dir_all(copies)?;
+    // Written beside the copy and renamed over it, so a crash part way
+    // through never leaves a half-written template to reopen.
+    let mut temp = tempfile::NamedTempFile::new_in(copies)?;
+    std::io::copy(&mut std::fs::File::open(source)?, &mut temp)?;
+    temp.persist(&copy)?;
+    Ok(copy)
+}
+
 impl TemplateTab {
+    pub fn new(copies: Option<PathBuf>, remembered: Option<PathBuf>) -> Self {
+        Self {
+            copies,
+            remembered,
+            ..Self::default()
+        }
+    }
+
+    pub fn remembered(&self) -> Option<&Path> {
+        self.remembered.as_deref()
+    }
+
+    /// Opens the template remembered from last time. If that fails, the
+    /// window starts empty with a note rather than an error: the person did
+    /// nothing wrong, and has only to open the template again.
+    pub fn reopen(&mut self, path: PathBuf) {
+        match Template::load(&path) {
+            Ok(template) => self.show(path, template),
+            Err(_) => {
+                let name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+                self.note = Some(format!("Couldn't reopen {name} — open the template again."));
+                self.remembered = None;
+            }
+        }
+    }
+
     pub fn open(&mut self, path: PathBuf) {
         match Template::load(&path) {
-            Ok(template) => {
-                self.values = template
-                    .fields
-                    .iter()
-                    .map(|field| (field.id.clone(), String::new()))
-                    .collect();
-                self.template = Some((path, template));
-                self.load_problem = None;
-                self.preview.clear();
-            }
+            Ok(template) => self.show(path, template),
             Err(error) => {
                 self.load_problem = Some(Problem::new(
                     "This template can't be used. Ask whoever sent it for a new copy.",
@@ -62,6 +114,36 @@ impl TemplateTab {
                 ))
             }
         }
+    }
+
+    /// Shows a template that loaded, and remembers it for next time. A
+    /// failed copy is only noted: the template is open and prints the same,
+    /// it just won't reopen if the original goes away.
+    fn show(&mut self, path: PathBuf, template: Template) {
+        let (remembered, note) = match &self.copies {
+            Some(copies) => match keep_copy(copies, &path) {
+                Ok(copy) => (copy, None),
+                Err(_) => (
+                    path.clone(),
+                    Some(
+                        "Couldn't keep a copy of this template to reopen next time. \
+                         Printing still works."
+                            .to_owned(),
+                    ),
+                ),
+            },
+            None => (path.clone(), None),
+        };
+        self.remembered = Some(remembered);
+        self.note = note;
+        self.values = template
+            .fields
+            .iter()
+            .map(|field| (field.id.clone(), String::new()))
+            .collect();
+        self.template = Some((path, template));
+        self.load_problem = None;
+        self.preview.clear();
     }
 
     /// A job only when the label can actually be drawn: `check` can't see
@@ -129,6 +211,9 @@ impl TemplateTab {
             });
             if let Some(problem) = &self.load_problem {
                 problem_ui(ui, problem);
+            }
+            if let Some(note) = &self.note {
+                ui.add(egui::Label::new(egui::RichText::new(note).color(p.muted)).wrap());
             }
             let Some((_, template)) = &self.template else {
                 ui.label(
@@ -245,6 +330,135 @@ mod tests {
         assert!(problem.summary.starts_with("This template can't be used."));
         assert!(problem.details.contains("Cannot read template"));
         assert!(tab.template.is_some());
+    }
+
+    fn example_in(dir: &Path) -> PathBuf {
+        let path = dir.join("access-code.rongta.toml");
+        std::fs::copy(example(), &path).unwrap();
+        path
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn opening_keeps_a_copy_and_remembers_it() {
+        let originals = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let copies = data.path().join("templates");
+        let original = example_in(originals.path());
+
+        let mut tab = TemplateTab::new(Some(copies.clone()), None);
+        tab.open(original.clone());
+        let copy = copies.join("access-code.rongta.toml");
+        assert!(tab.template.is_some());
+        assert_eq!(tab.remembered(), Some(copy.as_path()));
+        assert_eq!(
+            std::fs::read(&copy).unwrap(),
+            std::fs::read(&original).unwrap()
+        );
+        assert_eq!(tab.note, None);
+    }
+
+    #[test]
+    fn opening_replaces_an_older_copy() {
+        let originals = tempfile::tempdir().unwrap();
+        let copies = tempfile::tempdir().unwrap();
+        let original = example_in(originals.path());
+        let copy = copies.path().join("access-code.rongta.toml");
+        std::fs::write(&copy, "an older version").unwrap();
+
+        let mut tab = TemplateTab::new(Some(copies.path().into()), None);
+        tab.open(original.clone());
+        assert_eq!(
+            std::fs::read(&copy).unwrap(),
+            std::fs::read(&original).unwrap()
+        );
+        assert_eq!(names(copies.path()), ["access-code.rongta.toml"]);
+    }
+
+    #[test]
+    fn reopening_the_copy_leaves_it_alone() {
+        let copies = tempfile::tempdir().unwrap();
+        let copy = example_in(copies.path());
+        let modified = std::fs::metadata(&copy).unwrap().modified().unwrap();
+
+        let mut tab = TemplateTab::new(Some(copies.path().into()), Some(copy.clone()));
+        tab.reopen(copy.clone());
+        assert!(tab.template.is_some());
+        assert_eq!(tab.remembered(), Some(copy.as_path()));
+        assert_eq!(
+            std::fs::metadata(&copy).unwrap().modified().unwrap(),
+            modified
+        );
+        assert_eq!(names(copies.path()), ["access-code.rongta.toml"]);
+        assert_eq!(tab.note, None);
+    }
+
+    #[test]
+    fn a_failed_copy_still_opens_and_remembers_the_original() {
+        let originals = tempfile::tempdir().unwrap();
+        let original = example_in(originals.path());
+        // A file where the folder should be, so the copy can't be written.
+        let blocked = originals.path().join("templates");
+        std::fs::write(&blocked, "").unwrap();
+
+        let mut tab = TemplateTab::new(Some(blocked), None);
+        tab.open(original.clone());
+        assert!(tab.template.is_some());
+        assert!(tab.load_problem.is_none());
+        assert_eq!(tab.remembered(), Some(original.as_path()));
+        assert!(tab.note.is_some());
+        assert!(
+            tab.job()
+                .is_err_and(|why| why == "Fill in the form to print")
+        );
+    }
+
+    #[test]
+    fn a_missing_remembered_template_is_noted_and_forgotten() {
+        let copies = tempfile::tempdir().unwrap();
+        let missing = copies.path().join("access-code.rongta.toml");
+
+        let mut tab = TemplateTab::new(Some(copies.path().into()), Some(missing.clone()));
+        tab.reopen(missing);
+        assert!(tab.template.is_none());
+        assert!(tab.load_problem.is_none(), "not an error");
+        assert_eq!(tab.remembered(), None);
+        assert_eq!(
+            tab.note.as_deref(),
+            Some("Couldn't reopen access-code.rongta.toml — open the template again.")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_remembered_template_is_noted_and_forgotten() {
+        let copies = tempfile::tempdir().unwrap();
+        let broken = copies.path().join("broken.rongta.toml");
+        std::fs::write(&broken, "not a template").unwrap();
+
+        let mut tab = TemplateTab::new(Some(copies.path().into()), Some(broken.clone()));
+        tab.reopen(broken);
+        assert!(tab.template.is_none());
+        assert_eq!(tab.remembered(), None);
+        assert_eq!(
+            tab.note.as_deref(),
+            Some("Couldn't reopen broken.rongta.toml — open the template again.")
+        );
+    }
+
+    #[test]
+    fn a_bad_file_keeps_the_remembered_template() {
+        let remembered = PathBuf::from("/kept/access-code.rongta.toml");
+        let mut tab = TemplateTab::new(None, Some(remembered.clone()));
+        tab.open(PathBuf::from("/nonexistent/template.rongta.toml"));
+        assert_eq!(tab.remembered(), Some(remembered.as_path()));
     }
 
     const BADGE: &str = include_str!("../tests/fixtures/name-badge.rongta.toml");

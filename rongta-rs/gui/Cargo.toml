@@ -14,9 +14,11 @@ rongta = { path = ".." }
 rongta-host = { path = "../host" }
 rongta-template = { path = "../template" }
 anyhow = "1"
-eframe = "0.37"
+directories = "6"
+eframe = { version = "0.37", features = ["persistence"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "pnm"] }
 rfd = "0.18"
+tempfile = "3"
 tokio = { version = "1", features = ["rt", "time", "sync"] }
 
 [dev-dependencies]

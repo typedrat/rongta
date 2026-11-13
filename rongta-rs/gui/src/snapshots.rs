@@ -273,7 +273,7 @@ fn example_tab(code: Option<&str>) -> TemplateTab {
 #[test]
 fn template_form() {
     let mut results = SnapshotResults::new();
-    let cases: [(&str, Make<TemplateTab>, egui::Vec2); 5] = [
+    let cases: [(&str, Make<TemplateTab>, egui::Vec2); 6] = [
         (
             "template_form_empty_state",
             TemplateTab::default,
@@ -302,6 +302,16 @@ fn template_form() {
                 tab
             },
             egui::vec2(400.0, 230.0),
+        ),
+        // Last time's template has gone from the app's folder.
+        (
+            "template_form_reopen_failed",
+            || {
+                let mut tab = TemplateTab::new(None, None);
+                tab.reopen(PathBuf::from("/nonexistent/access-code.rongta.toml"));
+                tab
+            },
+            egui::vec2(400.0, 190.0),
         ),
     ];
     for (name, make, size) in cases {
