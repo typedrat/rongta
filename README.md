@@ -22,8 +22,9 @@ Entering the shell does not launch Android or change Bluetooth services.
 - `rongta`: portable Bluetooth discovery traits and printer detection, framing,
   handshake, media geometry, image processing, and printing over a caller-supplied
   Tokio `AsyncRead + AsyncWrite + Unpin` stream.
-- `rongta-cli` (`rongta-rs/cli/`): the Linux `rongta` executable, including BlueZ
-  discovery/transport, OS randomness, terminal UI, and file/environment settings.
+- `rongta-cli` (`rongta-rs/cli/`): the `rongta` executable for Linux, macOS, and
+  Windows, including each host's Bluetooth discovery/transport, OS randomness,
+  terminal UI, and file/environment settings.
 
 Other applications can depend on the library without pulling in BlueZ, D-Bus,
 or CLI dependencies. No feature flags are needed:
@@ -42,13 +43,13 @@ and call `rongta::bluetooth::scan` with `DeviceFilter::Printers` or
 `DeviceFilter::All`. `ScanDevice<Id>` keeps the backend's identifier type, so it
 can hold a MAC address, UUID, or native handle. The library applies the shared
 stock-app name rules; the backend handles adapter selection and discovery
-resources. Discovery futures need not be `Send`. The CLI's `BlueZDiscovery`
+resources. Discovery futures need not be `Send`. The CLI's `SystemDiscovery`
 implements this same interface for both `scan` and the settings picker.
 
-The library uses `std`; this split does not add other platform Bluetooth backends.
+The library uses `std` and contains no host Bluetooth code.
 
 From `rongta-rs/`, `cargo check -p rongta --lib` and `cargo test -p rongta`
-select only the portable package. Workspace-wide builds include the Linux CLI.
+select only the portable package. Workspace-wide builds include the CLI.
 `cargo run -- ...` still selects the `rongta` executable. To install it from
 source, run `cargo install --path cli --locked`.
 
@@ -125,11 +126,13 @@ An empty result gives a readable message (or `[]` with `--json`); adapter and
 discovery failures return nonzero. `--timeout` sets the discovery interval;
 adapter setup and reading result properties can take additional time.
 
-`info` discovers the selected MAC if BlueZ does not know it yet, pairs if needed,
-and resolves the SPP channel through BlueZ/SDP. Pairing uses your existing BlueZ
-agent. If necessary, pair interactively with `bluetoothctl` first, or add
-`--pin YOUR_PRINTER_PIN` for legacy PIN pairing. The tested R22 paired through BlueZ without an explicit PIN; none is assumed. No root privileges are normally required when your user
-has BlueZ access. The CLI does not change adapter power or host services.
+`info` discovers the selected MAC if BlueZ does not know it yet, pairs if
+needed, and resolves the SPP channel through BlueZ/SDP. Pairing uses your
+existing BlueZ agent. If necessary, pair interactively with `bluetoothctl`
+first, or add `--pin YOUR_PRINTER_PIN` for legacy PIN pairing. The tested R22
+paired through BlueZ without an explicit PIN; none is assumed. No root
+privileges are normally required when your user has BlueZ access. The CLI does
+not change adapter power or host services.
 
 Output is JSON containing protocol parameters, serials, device/firmware/hardware
 versions, model geometry, battery readings, and verified challenge fields.
@@ -298,6 +301,30 @@ printer state, not image quality. Missing completion, faults, rejected commands,
 malformed replies, disconnects, and timeouts fail without automatically retrying.
 A failed or interrupted job can have been partially sent; check the printer
 before retrying. See [print-job notes](notes/printing.md) for protocol details.
+
+## macOS and Windows
+
+The CLI picks its Bluetooth backend at compile time. Commands, settings, and
+output are the same on every host, except that `--adapter` is Linux-only and is
+rejected elsewhere. Both of these backends type-check in cross builds but have
+not yet been run against hardware.
+
+- **macOS** uses IOBluetooth. `scan` runs a Classic inquiry and adds paired
+  devices; `KNOWN` means paired. `info` and `print` pair through IOBluetooth
+  when needed, resolve the SPP channel by SDP, and open RFCOMM. macOS has no
+  agent to forward a PIN prompt to, so a printer that asks for a PIN needs
+  `--pin`, or pair it in System Settings first. The terminal app must have
+  Bluetooth permission (System Settings > Privacy & Security > Bluetooth); macOS
+  asks the first time.
+- **Windows** uses Win32 Bluetooth APIs and Winsock RFCOMM sockets, which need
+  no app packaging or capability manifest. `scan` returns inquiry results plus
+  devices Windows remembers. Windows caps an inquiry at about 61 seconds and
+  reports neither RSSI nor service UUIDs during a scan, so those columns stay
+  unknown. Without `--pin`, pairing shows the Windows prompt. With `--pin`, the
+  CLI answers legacy PIN requests itself.
+
+On both, Secure Simple Pairing confirmation requests are accepted and logged,
+because a printer has no display to compare a code against.
 
 ## Encode image data offline
 

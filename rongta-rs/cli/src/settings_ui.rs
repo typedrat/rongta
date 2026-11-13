@@ -56,7 +56,7 @@ pub async fn menu(storage: &Storage) -> Result<()> {
                 let address = match method {
                     Some(0) => {
                         eprintln!("Scanning for printers (10 seconds)…");
-                        let mut discovery = bluetooth::BlueZDiscovery { adapter_name: None };
+                        let mut discovery = bluetooth::SystemDiscovery { adapter_name: None };
                         match rongta::bluetooth::scan(
                             &mut discovery,
                             Duration::from_secs(10),
@@ -111,7 +111,7 @@ pub async fn menu(storage: &Storage) -> Result<()> {
                                     .unwrap_or_default(),
                             )
                             .validate_with(|s: &String| {
-                                s.parse::<bluer::Address>()
+                                s.parse::<bluetooth::Address>()
                                     .map(|_| ())
                                     .map_err(|_| "Use AA:BB:CC:DD:EE:FF")
                             })

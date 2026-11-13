@@ -126,8 +126,9 @@ struct Preview {
 
 /// Discover likely printers and show a readable device table
 ///
-/// Searches Classic and LE without pairing. Includes BlueZ's cached devices,
-/// which may be out of range. Use --all to bypass the stock app's name filter.
+/// Searches without pairing. Includes devices the host already knows (BlueZ's
+/// cache, or paired devices on macOS and Windows), which may be out of range.
+/// Use --all to bypass the stock app's name filter.
 #[derive(Args)]
 struct Scan {
     /// Match stock RONGTA printer names (default); --all disables name filtering
@@ -136,7 +137,7 @@ struct Scan {
     /// Output a JSON array instead of a readable table
     #[usage(long)]
     json: bool,
-    /// Host BlueZ adapter; defaults to the system's default adapter
+    /// Linux only: BlueZ adapter; defaults to the system's default adapter
     #[usage(long)]
     adapter: Option<String>,
     /// Discovery duration in seconds (1–3600)
@@ -163,13 +164,13 @@ struct Decode {
 
 /// Connect to an R22, complete its handshake, and print information as JSON
 ///
-/// Uses host BlueZ: stop bt-bridge and restore host Bluetooth first.
-/// Pairing uses the current BlueZ agent unless --pin is supplied.
+/// On Linux, stop bt-bridge and restore host Bluetooth first. Pairing uses the
+/// system's pairing prompt or agent unless --pin is supplied.
 #[derive(Args)]
 struct Info {
     /// Printer Bluetooth MAC address (AA:BB:CC:DD:EE:FF)
     address: Option<String>,
-    /// Host BlueZ adapter; defaults to the system's default adapter
+    /// Linux only: BlueZ adapter; defaults to the system's default adapter
     #[usage(long)]
     adapter: Option<String>,
     /// Deadline in seconds for connection, then separately for the handshake
@@ -199,7 +200,7 @@ struct Image {
     conversion: ImageConversion,
 }
 
-/// Handshake and send a PNG/PNM label over host BlueZ SPP
+/// Handshake and send a PNG/PNM label over Bluetooth SPP
 ///
 /// Uses selected media for image geometry. Without media, pixels are printer dots.
 /// Success reports submission and a subsequent idle status, not verified paper output.
@@ -214,7 +215,7 @@ struct Print {
     /// Override the selected printer for this job
     #[usage(long)]
     address: Option<String>,
-    /// Host BlueZ adapter; defaults to the system's default adapter
+    /// Linux only: BlueZ adapter; defaults to the system's default adapter
     #[usage(long)]
     adapter: Option<String>,
     /// Legacy pairing PIN, if required
@@ -293,7 +294,7 @@ async fn main() -> Result<()> {
                 let address = args
                     .address
                     .as_deref()
-                    .map(str::parse::<bluer::Address>)
+                    .map(str::parse::<bluetooth::Address>)
                     .transpose()
                     .context("Invalid printer Bluetooth address")?;
                 let media = args.media.as_deref().map(str::parse::<Media>).transpose()?;
@@ -365,7 +366,7 @@ async fn main() -> Result<()> {
                 "--timeout must be between 1 and 3600 seconds"
             );
             init_logging(false);
-            let mut discovery = bluetooth::BlueZDiscovery {
+            let mut discovery = bluetooth::SystemDiscovery {
                 adapter_name: args.adapter.as_deref(),
             };
             let filter = if args.printers {
@@ -513,7 +514,7 @@ async fn main() -> Result<()> {
 
 fn write_scan(
     output: &mut impl Write,
-    devices: &[ScanDevice<bluer::Address>],
+    devices: &[ScanDevice<bluetooth::Address>],
     printers: bool,
     json: bool,
 ) -> Result<()> {
@@ -569,7 +570,11 @@ fn write_scan(
     Ok(())
 }
 
-fn validate_connection(address: &str, timeout: u64, pin: Option<&str>) -> Result<bluer::Address> {
+fn validate_connection(
+    address: &str,
+    timeout: u64,
+    pin: Option<&str>,
+) -> Result<bluetooth::Address> {
     let address = address
         .parse()
         .context("Invalid printer Bluetooth address")?;
@@ -602,7 +607,7 @@ fn init_logging(verbose: bool) {
         .init();
 }
 
-fn resolve_address(explicit: Option<&str>, saved: Option<bluer::Address>) -> Result<String> {
+fn resolve_address(explicit: Option<&str>, saved: Option<bluetooth::Address>) -> Result<String> {
     explicit
         .map(str::to_owned)
         .or_else(|| saved.map(|a| a.to_string()))
@@ -715,7 +720,7 @@ mod scan_output_tests {
     use super::*;
     use rongta::bluetooth::ScanDevice;
 
-    fn device(name: Option<&str>, class: Option<u32>) -> ScanDevice<bluer::Address> {
+    fn device(name: Option<&str>, class: Option<u32>) -> ScanDevice<bluetooth::Address> {
         ScanDevice {
             address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
             name: name.map(str::to_owned),

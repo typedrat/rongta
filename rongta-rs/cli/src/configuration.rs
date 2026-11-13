@@ -36,7 +36,7 @@ pub struct Settings {
 pub struct PrinterSettings {
     /// Selected Bluetooth printer address.
     #[config(env = "RONGTA_ADDRESS")]
-    pub address: Option<bluer::Address>,
+    pub address: Option<crate::bluetooth::Address>,
     /// Printer model (currently r22).
     #[config(env = "RONGTA_MODEL", default = "r22")]
     pub model: Model,
@@ -67,7 +67,7 @@ struct LegacyState {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LegacyPrinterSettings {
-    address: Option<bluer::Address>,
+    address: Option<crate::bluetooth::Address>,
     model: Model,
     media: Option<String>,
 }
