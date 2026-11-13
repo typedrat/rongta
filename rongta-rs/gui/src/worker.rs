@@ -97,13 +97,14 @@ impl Worker {
                 for request in incoming {
                     match request {
                         Request::Scan => {
-                            let result = runtime.block_on(scan());
-                            send(Event::Scanned(result.map_err(|e| Problem::from(&e))));
+                            let result = contain(|| runtime.block_on(scan()));
+                            send(Event::Scanned(result));
                         }
                         Request::Print(request) => {
-                            let result =
-                                runtime.block_on(print(request, |stage| send(Event::Stage(stage))));
-                            send(Event::Printed(result.map_err(|e| Problem::from(&e))));
+                            let result = contain(|| {
+                                runtime.block_on(print(request, |stage| send(Event::Stage(stage))))
+                            });
+                            send(Event::Printed(result));
                         }
                     }
                 }
@@ -113,12 +114,29 @@ impl Worker {
     }
 
     pub fn send(&self, request: Request) {
-        // The thread only stops when this sender is dropped.
+        // The thread outlives panics in a request (see `contain`), so it only
+        // stops once this sender is dropped.
         let _ = self.requests.send(request);
     }
 
     pub fn poll(&self) -> Vec<Event> {
         self.events.try_iter().collect()
+    }
+}
+
+/// Runs one request's work, turning a panic into a `Problem` so the thread
+/// keeps serving requests and the UI is never left waiting for an event.
+fn contain<T>(work: impl FnOnce() -> Result<T>) -> Result<T, Problem> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+        Ok(result) => result.map_err(|e| Problem::from(&e)),
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_owned());
+            Err(Problem::from(&anyhow::anyhow!(message)))
+        }
     }
 }
 
@@ -146,4 +164,31 @@ async fn print(request: PrintRequest, progress: impl FnMut(Stage)) -> Result<()>
     )
     .await
     .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panic_becomes_a_problem_with_its_message() {
+        // The default hook still prints the panic to stderr; that noise is
+        // harmless and swapping the process-wide hook would race other tests.
+        let problem = contain::<()>(|| panic!("raster blew up")).unwrap_err();
+        assert!(problem.summary.starts_with("Something went wrong."));
+        assert_eq!(problem.details, "raster blew up");
+
+        let problem = contain::<()>(|| panic!("{}", String::from("owned message"))).unwrap_err();
+        assert_eq!(problem.details, "owned message");
+
+        let problem = contain::<()>(|| std::panic::panic_any(7u8)).unwrap_err();
+        assert_eq!(problem.details, "unknown panic");
+    }
+
+    #[test]
+    fn results_pass_through_contain() {
+        assert_eq!(contain(|| Ok(3)).unwrap(), 3);
+        let problem = contain::<()>(|| Err(anyhow::anyhow!("something unexpected"))).unwrap_err();
+        assert_eq!(problem.details, "something unexpected");
+    }
 }

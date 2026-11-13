@@ -13,17 +13,21 @@ impl From<&anyhow::Error> for Problem {
         let details = format!("{error:#}");
         let summary = if details.starts_with("Print job failed") {
             "The print may not have finished. Check the printer and the label before printing again."
-        } else if details.contains("Timed out") && details.contains("connecting") {
+        } else if details.contains("Timed out")
+            && (details.contains("connecting")
+                || details.contains("pairing")
+                || details.contains("SDP"))
+        {
             "Couldn't reach the printer. Make sure it's switched on and close by, then try again."
         } else if details.contains("Timed out") {
             "The printer stopped responding. Switch it off and on again, then try again."
+        } else if details.contains("Pairing failed") {
+            "Couldn't pair with the printer. Pair it in your computer's Bluetooth settings, then try again."
         } else if details.contains("BlueZ")
             || details.contains("adapter")
             || details.contains("Winsock")
         {
             "Bluetooth isn't available. Check that it's turned on in your computer's settings."
-        } else if details.contains("Pairing failed") {
-            "Couldn't pair with the printer. Pair it in your computer's Bluetooth settings, then try again."
         } else {
             "Something went wrong. The details below may help whoever set this up."
         };
@@ -59,6 +63,22 @@ mod tests {
             (
                 anyhow!("No BlueZ adapter; stop bt-bridge and restore host Bluetooth"),
                 "Bluetooth",
+            ),
+            (
+                anyhow!("no adapter bonded").context("Pairing failed; check the PIN"),
+                "Couldn't pair",
+            ),
+            (
+                anyhow!("Timed out pairing with the printer"),
+                "Couldn't reach the printer",
+            ),
+            (
+                anyhow!("Timed out waiting for the printer's SDP records"),
+                "Couldn't reach the printer",
+            ),
+            (
+                anyhow!("Timed out after 60s waiting for status"),
+                "stopped responding",
             ),
             (anyhow!("something unexpected"), "Something went wrong"),
         ] {
