@@ -19,7 +19,7 @@ Entering the shell does not launch Android or change Bluetooth services.
 
 ## Rust library and CLI
 
-`rongta-rs/` is a Cargo workspace with four packages:
+`rongta-rs/` is a Cargo workspace with five packages:
 
 - `rongta`: portable Bluetooth discovery traits and printer detection, framing,
   handshake, media geometry, image processing, and printing over a caller-supplied
@@ -31,6 +31,8 @@ Entering the shell does not launch Android or change Bluetooth services.
   renders them to a printable raster.
 - `rongta-cli` (`rongta-rs/cli/`): the `rongta` executable for Linux, macOS, and
   Windows, including its terminal UI and command-line interface.
+- `rongta-gui` (`rongta-rs/gui/`): the `rongta-gui` desktop app for filling in
+  templates and printing pictures.
 
 Other applications can depend on the library without pulling in BlueZ, D-Bus,
 or CLI dependencies. No feature flags are needed:
@@ -228,6 +230,18 @@ Labels are drawn at exactly the printable size, one pixel per dot, and converted
 with a plain threshold rather than dithering, which would break up QR modules
 and text edges. Text is set in Atkinson Hyperlegible Next, which is licensed
 under the SIL Open Font License.
+
+## Desktop app
+
+`rongta-gui` is a desktop window for the same printer: fill in a label
+template or pick a picture, check the preview, and print. It shares its saved
+settings with the CLI. See [notes/gui.md](notes/gui.md) for building it, for
+sending it to someone on a Mac, and for its current status.
+
+```sh
+cd rongta-rs
+cargo run -p rongta-gui
+```
 
 ## Send a print job
 

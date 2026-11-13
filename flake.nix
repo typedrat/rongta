@@ -35,7 +35,12 @@
               filter =
                 path: type:
                 craneLib.filterCargoSources path type
-                || pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) [ ".json" ".ttf" ".toml" ];
+                || pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) [
+                  ".json"
+                  ".ttf"
+                  ".toml"
+                  ".png"
+                ];
             };
             strictDeps = true;
             cargoExtraArgs = "--workspace";
@@ -43,9 +48,37 @@
             # BlueZ is reached over D-Bus; macOS links its system frameworks instead.
             buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
           };
+          # winit and wgpu dlopen these at run time rather than linking them.
+          guiLibraries = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
+            with pkgs;
+            [
+              libGL
+              libxkbcommon
+              vulkan-loader
+              wayland
+              libx11
+              libxcursor
+              libxi
+              libxrandr
+            ]
+          );
+          # Mesa's software Vulkan driver, named by architecture.
+          lavapipeIcd = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
           rongta = craneLib.buildPackage (
             commonArgs
             // {
+              # The GUI snapshot tests only run on lavapipe, the renderer their
+              # reference images come from; VK_DRIVER_FILES makes it the only
+              # driver the Vulkan loader sees.
+              preCheck = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                export VK_DRIVER_FILES=${lavapipeIcd}
+                export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ]}
+              '';
+              nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
+              postInstall = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                wrapProgram $out/bin/rongta-gui \
+                  --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath guiLibraries}
+              '';
               cargoArtifacts = craneLib.buildDepsOnly commonArgs;
               meta.mainProgram = "rongta";
             }
@@ -118,9 +151,35 @@
                     name = "ANDROID_SDK_ROOT";
                     value = sdkRoot;
                   }
+                  {
+                    name = "LD_LIBRARY_PATH";
+                    prefix = pkgs.lib.makeLibraryPath guiLibraries;
+                  }
                 ];
 
+                # Offers lavapipe, which the GUI snapshot tests insist on,
+                # alongside the real GPU, which `cargo run` still prefers. The
+                # loader ignores VK_ADD_DRIVER_FILES whenever VK_DRIVER_FILES
+                # is set, as NixOS desktops with NVIDIA drivers do, so then
+                # lavapipe has to join that list instead.
+                devshell.startup.lavapipe.text = ''
+                  if [[ -n "''${VK_DRIVER_FILES:-}" ]]; then
+                    export VK_DRIVER_FILES="$VK_DRIVER_FILES:${lavapipeIcd}"
+                  else
+                    export VK_ADD_DRIVER_FILES=${lavapipeIcd}
+                  fi
+                '';
+
                 commands = [
+                  {
+                    name = "gui-snapshots";
+                    category = "gui";
+                    help = "Run the GUI tests on lavapipe alone; UPDATE_SNAPSHOTS=force re-records the images";
+                    command = ''
+                      cd "$(${pkgs.git}/bin/git rev-parse --show-toplevel)/rongta-rs"
+                      VK_DRIVER_FILES=${lavapipeIcd} exec cargo test --locked -p rongta-gui "$@"
+                    '';
+                  }
                   {
                     name = "bt-bridge";
                     category = "android";

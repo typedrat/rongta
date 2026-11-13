@@ -1,0 +1,16 @@
+version = 1
+name = "Name badge"
+media = "gap:50x25"
+
+[[field]]
+id = "name"
+label = "Name"
+
+[qr]
+content = "https://example.com/badge?name={name}"
+error_correction = "M"
+
+[[text]]
+content = "{name}"
+size_mm = 5.0
+bold = true
