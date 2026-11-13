@@ -67,15 +67,13 @@
           rongta = craneLib.buildPackage (
             commonArgs
             // {
-              # The sandbox has no GPU, so the GUI snapshot tests render on
-              # lavapipe; VK_DRIVER_FILES restricts the loader to it.
+              # The GUI snapshot tests only run on lavapipe, the renderer their
+              # reference images come from; VK_DRIVER_FILES makes it the only
+              # driver the Vulkan loader sees.
               preCheck = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
                 export VK_DRIVER_FILES=${lavapipeIcd}
                 export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ]}
               '';
-              # Preview textures sample a few pixels differently on the build
-              # machine's lavapipe than on the machine that recorded them.
-              cargoTestExtraArgs = "-- --skip snapshots::template_preview --skip snapshots::image_preview";
               nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
               postInstall = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
                 wrapProgram $out/bin/rongta-gui \
@@ -157,15 +155,31 @@
                     name = "LD_LIBRARY_PATH";
                     prefix = pkgs.lib.makeLibraryPath guiLibraries;
                   }
-                  # Adds lavapipe for headless GUI snapshot tests without hiding
-                  # the real GPU, so `cargo run` still renders on hardware.
-                  {
-                    name = "VK_ADD_DRIVER_FILES";
-                    value = lavapipeIcd;
-                  }
                 ];
 
+                # Offers lavapipe, which the GUI snapshot tests insist on,
+                # alongside the real GPU, which `cargo run` still prefers. The
+                # loader ignores VK_ADD_DRIVER_FILES whenever VK_DRIVER_FILES
+                # is set, as NixOS desktops with NVIDIA drivers do, so then
+                # lavapipe has to join that list instead.
+                devshell.startup.lavapipe.text = ''
+                  if [[ -n "''${VK_DRIVER_FILES:-}" ]]; then
+                    export VK_DRIVER_FILES="$VK_DRIVER_FILES:${lavapipeIcd}"
+                  else
+                    export VK_ADD_DRIVER_FILES=${lavapipeIcd}
+                  fi
+                '';
+
                 commands = [
+                  {
+                    name = "gui-snapshots";
+                    category = "gui";
+                    help = "Run the GUI tests on lavapipe alone; UPDATE_SNAPSHOTS=force re-records the images";
+                    command = ''
+                      cd "$(${pkgs.git}/bin/git rev-parse --show-toplevel)/rongta-rs"
+                      VK_DRIVER_FILES=${lavapipeIcd} exec cargo test --locked -p rongta-gui "$@"
+                    '';
+                  }
                   {
                     name = "bt-bridge";
                     category = "android";
