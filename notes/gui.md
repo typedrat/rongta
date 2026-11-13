@@ -76,9 +76,10 @@ full CI, and attaches the AppImages and both zips to a GitHub release.
 ## Sending it to someone on a Mac
 
 Send `Rongta-Labels-macos-arm64.zip`; it unzips to `Rongta Labels.app`, which
-needs an Apple silicon Mac. The app is ad-hoc signed, not notarized, so macOS
-blocks it the first time. These are the macOS 15 and later steps to read out
-over the phone:
+needs an Apple silicon Mac with macOS 14 Sonoma or later. The app is ad-hoc
+signed, not notarized, so macOS blocks it the first time. On macOS 14,
+right-click the app, choose Open, then Open again. These are the macOS 15 and
+later steps to read out over the phone:
 
 - Double-click the app. It's blocked; click **Done**. (Right-click, then Open,
   no longer works around this on macOS 15 and later.)

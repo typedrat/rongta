@@ -314,8 +314,18 @@
             mkdir -p "$contents/MacOS" "$contents/Resources/licenses"
             cp ${rongtaBuild.rongta}/bin/rongta-gui "$bin"
             chmod u+w "$bin"
+            # LaunchServices decides from LSMinimumSystemVersion whether to
+            # offer the app, but the loader enforces the binary's own minimum.
+            # Taking the value from the binary keeps the two from disagreeing,
+            # which would leave older macOS opening an app that can't start.
+            minos=$(otool -l "$bin" | awk '$1 == "minos" { print $2; exit }')
+            if [ -z "$minos" ]; then
+              echo "no minimum macOS version in $bin" >&2
+              exit 1
+            fi
             substitute ${../rongta-rs/gui/packaging/macos/Info.plist} "$contents/Info.plist" \
-              --replace-fail @VERSION@ ${rongtaBuild.rongta.version}
+              --replace-fail @VERSION@ ${rongtaBuild.rongta.version} \
+              --replace-fail @MINIMUM_MACOS@ "$minos"
             # A malformed Info.plist still signs, but Finder then refuses to
             # open the app with no useful error.
             xmllint --noout "$contents/Info.plist"
