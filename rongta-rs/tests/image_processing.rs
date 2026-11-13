@@ -107,3 +107,23 @@ fn fit_preserves_edges_and_circle_masks_corners() {
     assert_eq!(preview.get_pixel(32, 8).0, [255]);
     assert_eq!(preview.get_pixel(192, 160).0, [0]);
 }
+
+#[test]
+fn placed_content_is_centred_on_the_label_canvas() {
+    use rongta::{
+        image_processing::{place, printable_size},
+        raster::Raster,
+    };
+    assert_eq!(printable_size(50.0, 25.0), (384, 184));
+    assert_eq!(printable_size(40.0, 30.0), (320, 224));
+    let content = Raster::new(8, 2, vec![0xff, 0xff]).unwrap();
+    let placed = place(&content, (8, 2), &"gap:50x25".parse().unwrap(), 384, 200).unwrap();
+    assert_eq!((placed.width(), placed.height()), (384, 200));
+    let black: Vec<(u32, u32)> = (0..200)
+        .flat_map(|y| (0..384).map(move |x| (x, y)))
+        .filter(|&(x, y)| placed.bytes()[(y * 48 + x / 8) as usize] & (0x80 >> (x % 8)) != 0)
+        .collect();
+    assert_eq!(black.len(), 16);
+    assert_eq!(black[0], (188, 99));
+    assert!(place(&content, (16, 2), &"gap:50x25".parse().unwrap(), 384, 200).is_err());
+}

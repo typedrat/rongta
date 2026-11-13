@@ -23,6 +23,59 @@ impl std::str::FromStr for Layout {
     }
 }
 
+/// Dots inside the area the R22 can mark on a label of this size: the head is
+/// 48 mm wide, and 1 mm at the top and bottom stays blank.
+pub fn printable_size(width_mm: f64, height_mm: f64) -> (u32, u32) {
+    (
+        (width_mm.min(48.0) * 8.0) as u32,
+        ((height_mm - 2.0) * 8.0) as u32,
+    )
+}
+
+/// Centre the top-left `size` dots of `content` on a head-width canvas
+/// `canvas_height` dots tall. Dots outside a circular label stay white.
+pub fn place(
+    content: &Raster,
+    size: (u32, u32),
+    media: &Media,
+    head_width: u32,
+    canvas_height: u32,
+) -> Result<Raster> {
+    let (content_width, content_height) = size;
+    ensure!(
+        content_width <= content.width()
+            && content_height <= content.height()
+            && content_width <= head_width
+            && content_height <= canvas_height,
+        "Content does not fit the label canvas"
+    );
+    let offset_x = (head_width - content_width) / 2;
+    let offset_y = (canvas_height - content_height) / 2;
+    let stride = head_width as usize / 8;
+    let mut bytes = vec![0; stride * canvas_height as usize];
+    for y in 0..content_height {
+        for x in 0..content_width {
+            let dst_x = x + offset_x;
+            let dst_y = y + offset_y;
+            if let Media::Circle { diameter_mm } = media {
+                let radius = diameter_mm * 4.0;
+                let dx = f64::from(dst_x) + 0.5 - f64::from(head_width) / 2.0;
+                let dy = f64::from(dst_y) + 0.5 - f64::from(canvas_height) / 2.0;
+                if dx * dx + dy * dy > radius * radius {
+                    continue;
+                }
+            }
+            if content.bytes()[y as usize * (content.width() as usize / 8) + x as usize / 8]
+                & (0x80 >> (x % 8))
+                != 0
+            {
+                bytes[dst_y as usize * stride + dst_x as usize / 8] |= 0x80 >> (dst_x % 8);
+            }
+        }
+    }
+    Raster::new(head_width, canvas_height, bytes)
+}
+
 /// Crop a full-label design (Label), or fit an entire image (Fit), using 8 dots/mm.
 /// White margins and circular masks are applied after monochrome conversion.
 pub fn prepare(
@@ -60,8 +113,7 @@ pub fn prepare(
     );
     let content_width_mm = width_mm.min(48.0);
     let content_height_mm = height_mm - 2.0;
-    let width = (content_width_mm * 8.0) as u32;
-    let height = (content_height_mm * 8.0) as u32;
+    let (width, height) = printable_size(width_mm, height_mm);
     let canvas_height = (height_mm * 8.0) as u32;
     ensure!(
         width > 0 && height > 0 && width <= head_width,
@@ -104,31 +156,13 @@ pub fn prepare(
             )
         }
     };
-    let offset_x = (head_width - content_width) / 2;
-    let offset_y = (canvas_height - content_height) / 2;
-    let stride = head_width as usize / 8;
-    let mut bytes = vec![0; stride * canvas_height as usize];
-    for y in 0..content_height {
-        for x in 0..content_width {
-            let dst_x = x + offset_x;
-            let dst_y = y + offset_y;
-            if let Media::Circle { diameter_mm } = media {
-                let radius = diameter_mm * 4.0;
-                let dx = f64::from(dst_x) + 0.5 - f64::from(head_width) / 2.0;
-                let dy = f64::from(dst_y) + 0.5 - f64::from(canvas_height) / 2.0;
-                if dx * dx + dy * dy > radius * radius {
-                    continue;
-                }
-            }
-            if raster.bytes()[y as usize * (raster.width() as usize / 8) + x as usize / 8]
-                & (0x80 >> (x % 8))
-                != 0
-            {
-                bytes[dst_y as usize * stride + dst_x as usize / 8] |= 0x80 >> (dst_x % 8);
-            }
-        }
-    }
-    Raster::new(head_width, canvas_height, bytes)
+    place(
+        &raster,
+        (content_width, content_height),
+        media,
+        head_width,
+        canvas_height,
+    )
 }
 
 /// An exact black/white preview of the packed pixels that will be encoded.
