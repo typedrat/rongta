@@ -203,3 +203,51 @@ fn template_preview() {
         }
     }
 }
+
+fn image_tab(media: Option<&str>) -> crate::image_tab::ImageTab {
+    let mut tab = crate::image_tab::ImageTab::default();
+    tab.open(std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../examples/first-label.png"
+    )));
+    if let Some(media) = media {
+        tab.set_media_text(media);
+    }
+    tab
+}
+
+#[test]
+fn image_form() {
+    let mut results = SnapshotResults::new();
+    let gap: rongta::media::Media = "gap:50x30".parse().unwrap();
+    let cases = [
+        ("image_form_empty", crate::image_tab::ImageTab::default()),
+        ("image_form_loaded", image_tab(None)),
+        ("image_form_invalid", image_tab(Some("gap:"))),
+    ];
+    for (name, mut tab) in cases {
+        let saved = (name != "image_form_invalid").then_some(&gap);
+        // The invalid case adds a two-line hint, so it needs a taller canvas.
+        let height = if saved.is_none() { 340.0 } else { 280.0 };
+        snapshot(&mut results, name, egui::vec2(460.0, height), |ui| {
+            tab.form_ui(ui, saved)
+        });
+    }
+}
+
+#[test]
+fn image_preview() {
+    let mut results = SnapshotResults::new();
+    let gap: rongta::media::Media = "gap:50x30".parse().unwrap();
+    for (name, style) in [("image_preview", 0), ("image_preview_smooth", 1)] {
+        for (theme, suffix) in THEMES {
+            let mut tab = image_tab(None);
+            tab.set_style(style);
+            let mut harness = harness(egui::vec2(460.0, 340.0), theme, |u| {
+                egui::CentralPanel::default().show(u, |ui| tab.preview_ui(ui, Some(&gap)));
+            });
+            harness.run_steps(4);
+            results.add(harness.try_snapshot(format!("{name}_{suffix}")));
+        }
+    }
+}

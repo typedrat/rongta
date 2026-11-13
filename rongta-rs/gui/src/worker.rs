@@ -33,8 +33,6 @@ pub enum Job {
         template: Template,
         values: Values,
     },
-    // Constructed by the image tab, which isn't wired in yet.
-    #[allow(dead_code)]
     Image {
         source: Arc<RgbaImage>,
         media: Media,

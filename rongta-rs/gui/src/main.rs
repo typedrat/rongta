@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod errors;
+mod image_tab;
 mod preview;
 mod printer;
 mod template_tab;
@@ -55,6 +56,7 @@ struct App {
     density: u8,
     status: Status,
     template: template_tab::TemplateTab,
+    image: image_tab::ImageTab,
 }
 
 impl App {
@@ -71,6 +73,7 @@ impl App {
             density: 8,
             status: Status::Ready,
             template,
+            image: Default::default(),
         }
     }
 
@@ -82,6 +85,9 @@ impl App {
             if path.extension().is_some_and(|ext| ext == "toml") {
                 self.template.open(path);
                 self.tab = Tab::Template;
+            } else {
+                self.image.open(path);
+                self.tab = Tab::Image;
             }
         }
     }
@@ -202,7 +208,14 @@ impl eframe::App for App {
                     self.print_card(&mut columns[0], job);
                     self.template.preview_ui(&mut columns[1]);
                 }
-                Tab::Image => self.print_card(&mut columns[0], None),
+                Tab::Image => {
+                    let media = self.printer.media.clone();
+                    self.image.form_ui(&mut columns[0], media.as_ref());
+                    columns[0].add_space(8.0);
+                    let job = self.image.job(media.as_ref());
+                    self.print_card(&mut columns[0], job);
+                    self.image.preview_ui(&mut columns[1], media.as_ref());
+                }
             });
         });
     }
