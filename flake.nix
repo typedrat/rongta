@@ -12,12 +12,29 @@
       url = "github:numtide/devshell";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-appimage = {
+      url = "github:ralismark/nix-appimage";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    github-actions-nix = {
+      url = "https://flakehub.com/f/synapdeck/github-actions-nix/*";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
-      imports = [ inputs.devshell.flakeModule ];
+      imports = [
+        inputs.devshell.flakeModule
+        inputs.github-actions-nix.flakeModules.default
+        ./nix/packaging.nix
+        ./nix/ci.nix
+      ];
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -64,6 +81,7 @@
           );
           # Mesa's software Vulkan driver, named by architecture.
           lavapipeIcd = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           rongta = craneLib.buildPackage (
             commonArgs
             // {
@@ -79,7 +97,7 @@
                 wrapProgram $out/bin/rongta-gui \
                   --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath guiLibraries}
               '';
-              cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+              inherit cargoArtifacts;
               meta.mainProgram = "rongta";
             }
           );
@@ -106,6 +124,16 @@
               allowUnfree = true;
               android_sdk.accept_license = true;
             };
+          };
+
+          # Shared with the nix/*.nix modules so packaging reuses one dependency build.
+          _module.args.rongtaBuild = {
+            inherit
+              craneLib
+              commonArgs
+              cargoArtifacts
+              rongta
+              ;
           };
 
           packages = {
