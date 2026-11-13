@@ -280,6 +280,108 @@
             find "$dir" -exec touch -d 1980-01-01T00:00:00Z {} +
             find "$dir" -print | LC_ALL=C sort | zip -X -@ $out
           '';
+
+      # nixpkgs links these by store path; macOS ships each under the same
+      # name in /usr/lib. Joined as a shell case pattern.
+      macSystemDylibs = lib.concatMapStringsSep " | " (name: "${builtins.storeDir}/*/lib/${name}") [
+        "libiconv.2.dylib"
+        "libresolv.9.dylib"
+        "libc++.1.dylib"
+        "libc++abi.dylib"
+        "libz.1.dylib"
+      ];
+      # Nix finds store references only in uncompressed bytes, and zip's
+      # deflate hides them, so allowedReferences checks the bundle here rather
+      # than on the zip.
+      macApp =
+        pkgs.runCommand "Rongta-Labels.app"
+          {
+            nativeBuildInputs = [
+              pkgs.cctools
+              pkgs.libxml2
+              pkgs.rcodesign
+            ];
+            # The .app must run on a Mac without Nix.
+            allowedReferences = [ ];
+          }
+          ''
+            app="Rongta Labels.app"
+            contents="$app/Contents"
+            bin="$contents/MacOS/rongta-gui"
+            mkdir -p "$contents/MacOS" "$contents/Resources/licenses"
+            cp ${rongtaBuild.rongta}/bin/rongta-gui "$bin"
+            chmod u+w "$bin"
+            substitute ${../rongta-rs/gui/packaging/macos/Info.plist} "$contents/Info.plist" \
+              --replace-fail @VERSION@ ${rongtaBuild.rongta.version}
+            # A malformed Info.plist still signs, but Finder then refuses to
+            # open the app with no useful error.
+            xmllint --noout "$contents/Info.plist"
+            cp ${rongtaIcon}/rongta-labels.icns "$contents/Resources/"
+            # The SIL OFL requires the fonts' licenses to ship with any copy.
+            cp ${fontLicenses}/* "$contents/Resources/licenses/"
+
+            # The first line of `otool -L` names the binary itself; each line
+            # after it is an install name followed by its versions.
+            deps=$(otool -L "$bin" | tail -n +2 | sed -E 's/^[[:space:]]*(.*) \(compatibility version .*/\1/')
+            if [ -z "$deps" ]; then
+              echo "otool listed no libraries for rongta-gui" >&2
+              exit 1
+            fi
+            while IFS= read -r lib; do
+              case "$lib" in
+                /usr/lib/* | /System/Library/*) ;;
+                ${macSystemDylibs})
+                  install_name_tool -change "$lib" "/usr/lib/$(basename "$lib")" "$bin"
+                  ;;
+                ${builtins.storeDir}/*)
+                  echo "rongta-gui links $lib, which macOS does not provide" >&2
+                  exit 1
+                  ;;
+                *)
+                  echo "rongta-gui links $lib, which is not a system library" >&2
+                  exit 1
+                  ;;
+              esac
+            done <<< "$deps"
+            # `otool -l` prints each load command as a block of "key value"
+            # lines. The path in an LC_RPATH block isn't at a fixed line offset
+            # from its cmd line, and other blocks can mention LC_RPATH, so this
+            # tracks which command each line belongs to instead of counting.
+            rpaths=$(otool -l "$bin" | awk '
+              $1 == "cmd" { rpath = ($2 == "LC_RPATH") }
+              rpath && $1 == "path" { print $2 }
+            ')
+            for rpath in $rpaths; do
+              case "$rpath" in
+                ${builtins.storeDir}/*) install_name_tool -delete_rpath "$rpath" "$bin" ;;
+              esac
+            done
+
+            # Apple Silicon refuses unsigned code, and the edits above
+            # invalidated the linker's signature. Without a certificate,
+            # rcodesign signs ad hoc, which also seals Info.plist and the
+            # resources into the bundle's signature.
+            rcodesign sign "$app"
+            mv "$app" $out
+          '';
+      macZip =
+        pkgs.runCommand "Rongta-Labels-macos-arm64.zip"
+          {
+            nativeBuildInputs = [ pkgs.zip ];
+            allowedReferences = [ ];
+          }
+          ''
+            app="Rongta Labels.app"
+            cp -R ${macApp} "$app"
+            # Store files are read-only, and Finder asks for an administrator
+            # password to move a read-only app to the Trash. The signature
+            # covers file contents, not modes or times.
+            chmod -R u+w "$app"
+            # zip records each file's mtime, and the oldest date it can store
+            # is 1980; pinning one keeps the archive reproducible.
+            find "$app" -exec touch -d 1980-01-01T00:00:00Z {} +
+            find "$app" -print | LC_ALL=C sort | zip -X -y -@ $out
+          '';
     in
     {
       packages =
@@ -290,6 +392,10 @@
         // lib.optionalAttrs (system == "x86_64-linux") {
           rongta-gui-windows-exe = windowsExe;
           rongta-gui-windows = windowsZip;
+        }
+        // lib.optionalAttrs (system == "aarch64-darwin") {
+          rongta-gui-macos-app = macApp;
+          rongta-gui-macos = macZip;
         };
       checks = lib.optionalAttrs isLinux {
         rongta-gui-portable = portableCheck;
