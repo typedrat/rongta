@@ -20,4 +20,4 @@ rfd = "0.18"
 tokio = { version = "1", features = ["rt", "time", "sync"] }
 
 [dev-dependencies]
-egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
+egui_kittest = { version = "0.37", features = ["eframe", "wgpu", "snapshot"] }

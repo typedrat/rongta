@@ -26,8 +26,6 @@ pub struct Palette {
     /// Text drawn on `accent`.
     pub on_accent: Color32,
     pub error: Color32,
-    // Not drawn yet; the palette test already holds it to the contrast bar.
-    #[allow(dead_code)]
     pub success: Color32,
 }
 
@@ -113,7 +111,7 @@ fn style(p: &Palette, mut visuals: Visuals) -> Style {
     visuals.hyperlink_color = p.accent;
     visuals.error_fg_color = p.error;
     visuals.warn_fg_color = p.error;
-    visuals.selection.bg_fill = p.accent.gamma_multiply(0.35);
+    visuals.selection.bg_fill = selection(p);
     visuals.selection.stroke = Stroke::new(1.0, p.text);
 
     let widgets = &mut visuals.widgets;
@@ -151,6 +149,11 @@ fn style(p: &Palette, mut visuals: Visuals) -> Style {
     style
 }
 
+/// The translucent fill behind selected text, tabs and toggles.
+fn selection(p: &Palette) -> Color32 {
+    p.accent.gamma_multiply(0.35)
+}
+
 pub fn palette(ui: &egui::Ui) -> &'static Palette {
     if ui.visuals().dark_mode {
         &DARK
@@ -159,36 +162,49 @@ pub fn palette(ui: &egui::Ui) -> &'static Palette {
     }
 }
 
+const CARD_PADDING: i8 = 16;
+const CARD_STROKE: f32 = 1.0;
+
+/// Width a card adds around its contents: padding and border on both sides.
+pub const CARD_CHROME: f32 = 2.0 * (CARD_PADDING as f32 + CARD_STROKE);
+
 pub fn card<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let p = palette(ui);
     egui::Frame::new()
         .fill(p.surface)
-        .stroke(Stroke::new(1.0, p.border))
+        .stroke(Stroke::new(CARD_STROKE, p.border))
         .corner_radius(CornerRadius::same(12))
-        .inner_margin(Margin::same(16))
+        .inner_margin(Margin::same(CARD_PADDING))
         .show(ui, add_contents)
         .inner
 }
 
 pub fn primary_button(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
     let p = palette(ui);
-    let label = egui::RichText::new(text)
-        .font(FontId::new(16.0, semibold()))
-        .color(p.on_accent);
-    let button = egui::Button::new(label)
-        .fill(p.accent)
-        .stroke(Stroke::NONE)
-        .corner_radius(CornerRadius::same(8))
-        .min_size(vec2(140.0, 40.0));
-    let response = ui.add_enabled(enabled, button);
-    if response.hovered() && enabled {
-        ui.painter().rect_filled(
-            response.rect,
-            CornerRadius::same(8),
-            p.accent_hover.gamma_multiply(0.25),
-        );
-    }
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    ui.scope(|ui| {
+        // Colouring through the widget visuals, rather than fixed fill and
+        // text colours, lets hover and press change the fill alone. A
+        // disabled button may be styled as non-interactive; it keeps the
+        // accent and egui fades it.
+        let widgets = &mut ui.visuals_mut().widgets;
+        for (state, fill) in [
+            (&mut widgets.noninteractive, p.accent),
+            (&mut widgets.inactive, p.accent),
+            (&mut widgets.hovered, p.accent_hover),
+            (&mut widgets.active, p.accent_hover),
+        ] {
+            state.weak_bg_fill = fill;
+            state.bg_stroke = Stroke::NONE;
+            state.fg_stroke = Stroke::new(1.0, p.on_accent);
+        }
+        let label = egui::RichText::new(text).font(FontId::new(16.0, semibold()));
+        let button = egui::Button::new(label)
+            .corner_radius(CornerRadius::same(8))
+            .min_size(vec2(140.0, 40.0));
+        ui.add_enabled(enabled, button)
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+    })
+    .inner
 }
 
 /// WCAG 2 contrast ratio between two opaque colours.
@@ -209,6 +225,19 @@ pub fn contrast(a: Color32, b: Color32) -> f32 {
     (x.max(y) + 0.05) / (x.min(y) + 0.05)
 }
 
+/// `over`, which may be translucent (premultiplied, as egui stores it),
+/// composited onto opaque `under`.
+#[cfg(test)]
+fn composite(over: Color32, under: Color32) -> Color32 {
+    let keep = 1.0 - f32::from(over.a()) / 255.0;
+    let mix = |o: u8, u: u8| (f32::from(o) + f32::from(u) * keep).round() as u8;
+    Color32::from_rgb(
+        mix(over.r(), under.r()),
+        mix(over.g(), under.g()),
+        mix(over.b(), under.b()),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +256,20 @@ mod tests {
                 ("on_accent on accent_hover", p.on_accent, p.accent_hover),
                 ("error on surface", p.error, p.surface),
                 ("success on surface", p.success, p.surface),
+                ("error on background", p.error, p.background),
+                ("success on background", p.success, p.background),
+                ("muted on raised", p.muted, p.raised),
+                // Selected tabs and toggles sit on the panel and on cards.
+                (
+                    "text on selection over background",
+                    p.text,
+                    composite(selection(p), p.background),
+                ),
+                (
+                    "text on selection over surface",
+                    p.text,
+                    composite(selection(p), p.surface),
+                ),
             ] {
                 let ratio = contrast(fg, bg);
                 assert!(ratio >= 4.5, "{name}: {what} is {ratio:.2}:1");

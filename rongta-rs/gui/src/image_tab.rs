@@ -1,15 +1,23 @@
 //! Printing an ordinary picture: choose it, choose how it fills the label and
 //! how greys become dots, then preview.
-use crate::{preview::Preview, theme, worker::Job};
-use anyhow::{Context, Result};
+use crate::{
+    errors::{Problem, problem_ui},
+    preview::{HEAD_DOTS, Preview},
+    theme,
+    worker::Job,
+};
 use eframe::egui;
-use image::RgbaImage;
+use image::{DynamicImage, ImageError, ImageReader, RgbaImage, imageops::FilterType};
 use rongta::{
     image_processing::Layout,
     media::Media,
     monochrome::{Conversion, Dither},
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    io::{BufRead, Seek},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 /// (label, dither name); `None` is the SDK's sharp black-and-white threshold.
 const STYLES: [(&str, Option<&str>); 4] = [
@@ -19,6 +27,19 @@ const STYLES: [(&str, Option<&str>); 4] = [
     ("Pattern", Some("bayer")),
 ];
 
+/// The longest edge kept after loading. A label is at most 384 dots across,
+/// so this still leaves room to crop for "Fill the label", and it keeps
+/// re-rendering the preview on each edit cheap.
+const MAX_EDGE: u32 = 2048;
+
+/// Enough for a 24-megapixel phone photo; past this a file is more likely
+/// hostile than a picture someone wants on a label.
+const MAX_DECODE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_DECODE_SIDE: u32 = 16_384;
+
+const UNREADABLE: &str = "Couldn't open this picture.";
+const TOO_LARGE: &str = "This picture is too large to open.";
+
 #[derive(Default)]
 pub struct ImageTab {
     path: Option<PathBuf>,
@@ -27,22 +48,49 @@ pub struct ImageTab {
     media_text: String,
     fit: bool,
     style: usize,
-    error: Option<String>,
-    preview: Preview,
+    problem: Option<Problem>,
+    /// Keyed by media, fit and style; opening a picture clears it.
+    preview: Preview<(Media, bool, usize)>,
 }
 
-/// Decoding is capped so a hostile or huge file can't exhaust memory.
-fn load(path: &std::path::Path) -> Result<RgbaImage> {
-    let mut reader = image::ImageReader::open(path)
-        .with_context(|| format!("Cannot open {}", path.display()))?
-        .with_guessed_format()?;
+fn load(path: &Path) -> Result<RgbaImage, Problem> {
+    let reader = ImageReader::open(path).map_err(|error| {
+        Problem::new(
+            UNREADABLE,
+            &anyhow::Error::new(error).context(format!("Cannot open {}", path.display())),
+        )
+    })?;
+    decode(reader)
+}
+
+/// Decodes within memory limits, then shrinks to `MAX_EDGE` before the
+/// RGBA conversion so that copy is small too.
+fn decode(reader: ImageReader<impl BufRead + Seek>) -> Result<RgbaImage, Problem> {
+    let mut reader = reader
+        .with_guessed_format()
+        .map_err(|error| Problem::new(UNREADABLE, &error.into()))?;
     let mut limits = image::Limits::default();
-    limits.max_alloc = Some(64 * 1024 * 1024);
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    limits.max_image_width = Some(MAX_DECODE_SIDE);
+    limits.max_image_height = Some(MAX_DECODE_SIDE);
     reader.limits(limits);
-    Ok(reader
-        .decode()
-        .context("This file isn't a picture this app can read")?
-        .into_rgba8())
+    let image = reader.decode().map_err(|error| {
+        let summary = match error {
+            ImageError::Limits(_) => TOO_LARGE,
+            _ => UNREADABLE,
+        };
+        Problem::new(summary, &error.into())
+    })?;
+    Ok(shrink(image).into_rgba8())
+}
+
+fn shrink(image: DynamicImage) -> DynamicImage {
+    if image.width().max(image.height()) > MAX_EDGE {
+        // `resize` keeps the aspect ratio within the bound.
+        image.resize(MAX_EDGE, MAX_EDGE, FilterType::Lanczos3)
+    } else {
+        image
+    }
 }
 
 impl ImageTab {
@@ -51,10 +99,10 @@ impl ImageTab {
             Ok(image) => {
                 self.source = Some(Arc::new(image));
                 self.path = Some(path);
-                self.error = None;
+                self.problem = None;
                 self.preview.clear();
             }
-            Err(error) => self.error = Some(format!("{error:#}")),
+            Err(problem) => self.problem = Some(problem),
         }
     }
 
@@ -83,17 +131,22 @@ impl ImageTab {
         self.style = style;
     }
 
-    pub fn job(&self, saved_media: Option<&Media>) -> Option<Job> {
-        Some(Job::Image {
-            source: self.source.clone()?,
-            media: self.media(saved_media)?,
+    /// The print job, or a short reason Print is unavailable.
+    pub fn job(&self, saved_media: Option<&Media>) -> Result<Job, &'static str> {
+        Ok(Job::Image {
+            source: self.source.clone().ok_or("Choose a picture to print")?,
+            media: self
+                .media(saved_media)
+                .ok_or("Enter the label size to print")?,
             layout: if self.fit { Layout::Fit } else { Layout::Label },
             conversion: self.conversion(),
         })
     }
 
-    pub fn form_ui(&mut self, ui: &mut egui::Ui, saved_media: Option<&Media>) {
+    /// Returns whether the person changed anything.
+    pub fn form_ui(&mut self, ui: &mut egui::Ui, saved_media: Option<&Media>) -> bool {
         let p = theme::palette(ui);
+        let mut edited = false;
         theme::card(ui, |ui| {
             ui.horizontal(|ui| {
                 let title = self
@@ -113,11 +166,12 @@ impl ImageTab {
                             .pick_file()
                     {
                         self.open(path);
+                        edited = true;
                     }
                 });
             });
-            if let Some(error) = &self.error {
-                ui.label(egui::RichText::new(error).color(p.error));
+            if let Some(problem) = &self.problem {
+                problem_ui(ui, problem);
             }
 
             let labels = ui.label(
@@ -126,29 +180,42 @@ impl ImageTab {
             let placeholder = saved_media
                 .map(|media| format!("{media} (saved)"))
                 .unwrap_or_else(|| "e.g. gap:50x30".into());
-            ui.add(
-                egui::TextEdit::singleline(&mut self.media_text)
-                    .hint_text(placeholder)
-                    .desired_width(f32::INFINITY),
-            )
-            .labelled_by(labels.id);
+            edited |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut self.media_text)
+                        .hint_text(placeholder)
+                        .desired_width(f32::INFINITY),
+                )
+                .labelled_by(labels.id)
+                .changed();
             if self.media(saved_media).is_none() {
+                // Blank isn't a mistake yet, only something still to fill in.
+                let colour = if self.media_text.trim().is_empty() {
+                    p.muted
+                } else {
+                    p.error
+                };
                 ui.label(
                     egui::RichText::new(
                         "Enter the label size: gap:WIDTHxHEIGHT, circle:DIAMETER, or continuous:WIDTH, in mm",
                     )
                     .small()
-                    .color(p.error),
+                    .color(colour),
                 );
             }
 
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.fit, false, "Fill the label");
-                ui.selectable_value(&mut self.fit, true, "Show the whole picture");
+                edited |= ui
+                    .selectable_value(&mut self.fit, false, "Fill the label")
+                    .changed();
+                edited |= ui
+                    .selectable_value(&mut self.fit, true, "Show the whole picture")
+                    .changed();
             });
             let style = ui.label(
                 egui::RichText::new("Style").font(egui::FontId::new(14.0, theme::semibold())),
             );
+            let before = self.style;
             egui::ComboBox::from_id_salt("style")
                 .width(260.0)
                 .selected_text(STYLES[self.style].0)
@@ -159,21 +226,25 @@ impl ImageTab {
                 })
                 .response
                 .labelled_by(style.id);
+            edited |= self.style != before;
         });
+        edited
     }
 
     pub fn preview_ui(&mut self, ui: &mut egui::Ui, saved_media: Option<&Media>) {
-        match self.job(saved_media) {
-            Some(job) => {
-                let key = format!(
-                    "{:?}|{}|{}|{}|{saved_media:?}",
-                    self.path, self.media_text, self.fit, self.style
-                );
-                self.preview.update(ui.ctx(), key, move || job.raster(384));
+        let media = self.media(saved_media);
+        match (self.job(saved_media), &media) {
+            (Ok(job), Some(media)) => {
+                let key = (media.clone(), self.fit, self.style);
+                self.preview.update(ui.ctx(), &key, || {
+                    job.raster(HEAD_DOTS).map_err(|error| {
+                        Problem::new("Couldn't turn this picture into a label.", &error)
+                    })
+                });
             }
-            None => self.preview.clear(),
+            _ => self.preview.clear(),
         }
-        let caption = match self.media(saved_media) {
+        let caption = match media {
             Some(media) => format!("Preview · {media} label"),
             None => "Preview".into(),
         };
@@ -196,24 +267,63 @@ mod tests {
     fn needs_an_image_and_media() {
         let gap: Media = "gap:50x30".parse().unwrap();
         let mut tab = ImageTab::default();
-        assert!(tab.job(Some(&gap)).is_none());
+        assert_eq!(tab.job(Some(&gap)).err(), Some("Choose a picture to print"));
         tab.open(png());
-        assert!(tab.job(None).is_none(), "no saved media and none typed");
-        assert!(matches!(tab.job(Some(&gap)), Some(Job::Image { .. })));
+        assert_eq!(
+            tab.job(None).err(),
+            Some("Enter the label size to print"),
+            "no saved media and none typed"
+        );
+        assert!(matches!(tab.job(Some(&gap)), Ok(Job::Image { .. })));
         tab.media_text = "gap:40x30".into();
-        let Some(Job::Image { media, .. }) = tab.job(Some(&gap)) else {
+        let Ok(Job::Image { media, .. }) = tab.job(Some(&gap)) else {
             panic!()
         };
         assert_eq!(media.to_string(), "gap:40x30");
         tab.media_text = "nonsense".into();
-        assert!(tab.job(Some(&gap)).is_none());
+        assert!(tab.job(Some(&gap)).is_err());
+    }
+
+    fn png_bytes(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::GrayImage::new(width, height)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    }
+
+    #[test]
+    fn a_picture_past_the_limits_is_too_large_not_unreadable() {
+        let bytes = png_bytes(20_000, 1);
+        let reader = image::ImageReader::new(std::io::Cursor::new(bytes));
+        let problem = decode(reader).unwrap_err();
+        assert_eq!(problem.summary, "This picture is too large to open.");
+        assert!(problem.details.contains("limit"), "{}", problem.details);
+
+        let reader = image::ImageReader::new(std::io::Cursor::new(b"not a picture".to_vec()));
+        assert_eq!(
+            decode(reader).unwrap_err().summary,
+            "Couldn't open this picture."
+        );
+    }
+
+    #[test]
+    fn large_pictures_are_shrunk_once_at_load() {
+        let reader = image::ImageReader::new(std::io::Cursor::new(png_bytes(3000, 600)));
+        let image = decode(reader).unwrap();
+        assert_eq!(image.dimensions(), (2048, 410));
+
+        let reader = image::ImageReader::new(std::io::Cursor::new(png_bytes(640, 480)));
+        assert_eq!(decode(reader).unwrap().dimensions(), (640, 480));
     }
 
     #[test]
     fn unreadable_files_report_an_error() {
         let mut tab = ImageTab::default();
         tab.open(PathBuf::from("/nonexistent.png"));
-        assert!(tab.error.is_some());
+        let problem = tab.problem.as_ref().unwrap();
+        assert_eq!(problem.summary, "Couldn't open this picture.");
+        assert!(problem.details.contains("/nonexistent.png"));
         assert!(tab.source.is_none());
     }
 }

@@ -2,7 +2,7 @@
 //! or print takes seconds. Discovery futures aren't `Send`, so the thread runs
 //! a current-thread runtime and blocks on one request at a time.
 
-use crate::errors::Problem;
+use crate::errors::{self, Problem};
 use anyhow::Result;
 use eframe::egui;
 use image::RgbaImage;
@@ -120,10 +120,15 @@ impl Worker {
         Self { requests, events }
     }
 
-    pub fn send(&self, request: Request) {
-        // The thread outlives panics in a request (see `contain`), so it only
-        // stops once this sender is dropped.
-        let _ = self.requests.send(request);
+    /// Fails only if the thread has died, which `contain` should prevent; the
+    /// caller shows the problem rather than waiting for an event that will
+    /// never come.
+    pub fn send(&self, request: Request) -> Result<(), Problem> {
+        self.requests.send(request).map_err(|_| Problem {
+            summary: "The app lost its connection to Bluetooth. Close the app and open it again."
+                .into(),
+            details: "The Bluetooth thread has stopped".into(),
+        })
     }
 
     pub fn poll(&self) -> Vec<Event> {
@@ -142,7 +147,12 @@ fn contain<T>(work: impl FnOnce() -> Result<T>) -> Result<T, Problem> {
                 .map(|s| (*s).to_owned())
                 .or_else(|| payload.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "unknown panic".to_owned());
-            Err(Problem::from(&anyhow::anyhow!(message)))
+            // Panic text is a programmer's message; matching it against known
+            // printer failures would give a misleading summary.
+            Err(Problem {
+                summary: errors::UNEXPECTED.into(),
+                details: message,
+            })
         }
     }
 }
@@ -190,6 +200,23 @@ mod tests {
 
         let problem = contain::<()>(|| std::panic::panic_any(7u8)).unwrap_err();
         assert_eq!(problem.details, "unknown panic");
+    }
+
+    #[test]
+    fn panic_text_is_not_mistaken_for_a_known_failure() {
+        let problem = contain::<()>(|| panic!("Timed out connecting")).unwrap_err();
+        assert!(problem.summary.starts_with("Something went wrong."));
+        assert_eq!(problem.details, "Timed out connecting");
+    }
+
+    #[test]
+    fn sending_to_a_stopped_thread_is_a_problem() {
+        let problem = Worker::detached().send(Request::Scan).unwrap_err();
+        assert!(
+            problem.summary.contains("Close the app"),
+            "{}",
+            problem.summary
+        );
     }
 
     #[test]

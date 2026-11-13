@@ -9,27 +9,50 @@ mod theme;
 mod worker;
 
 use eframe::egui;
-use errors::Problem;
+use errors::{Problem, problem_ui};
 use printer::Printer;
 use rongta_host::job::Stage;
 use std::path::PathBuf;
 use worker::{Event, Job, PrintRequest, Request, Worker};
 
+/// The central panel's margin on each side.
+const PANEL_MARGIN: f32 = 8.0;
+/// The theme's horizontal item spacing, which also separates the columns.
+const COLUMN_GAP: f32 = 10.0;
+/// The form's widest row that can't wrap, the print card's Copies and
+/// Darkness controls, needs this much.
+const FORM_MIN_WIDTH: f32 = 400.0;
+/// The narrowest window that still shows the whole print head at one
+/// physical pixel per dot on a display at 1× scale.
+const MIN_WIDTH: f32 =
+    2.0 * PANEL_MARGIN + FORM_MIN_WIDTH + COLUMN_GAP + preview::CHROME + preview::HEAD_DOTS as f32;
+/// Gives the form room to spare beyond its minimum.
+const DEFAULT_WIDTH: f32 = MIN_WIDTH + 100.0;
+/// Fits the image tab, the tallest, once its label size is known; anything
+/// more scrolls.
+const MIN_HEIGHT: f32 = 580.0;
+/// Also fits the image tab's two-line label-size hint.
+const DEFAULT_HEIGHT: f32 = 640.0;
+
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Rongta Labels")
-            .with_inner_size([860.0, 620.0])
-            .with_min_inner_size([700.0, 540.0]),
+            .with_inner_size([DEFAULT_WIDTH, DEFAULT_HEIGHT])
+            .with_min_inner_size([MIN_WIDTH, MIN_HEIGHT]),
         ..Default::default()
     };
-    let template_path = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    let template_path = std::env::args_os().nth(1).map(PathBuf::from);
     eframe::run_native(
         "Rongta Labels",
         options,
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx);
-            Ok(Box::new(App::new(cc.egui_ctx.clone(), template_path)))
+            let mut app = App::with(Worker::spawn(cc.egui_ctx.clone()), Printer::load());
+            if let Some(path) = template_path {
+                app.template.open(path);
+            }
+            Ok(Box::new(app))
         }),
     )
 }
@@ -48,6 +71,17 @@ enum Status {
     Failed(Problem),
 }
 
+impl Status {
+    /// "Printed" is about the label just printed, so it no longer applies once
+    /// the person changes what is on screen. A failure stays until the next
+    /// print, in case they still need its details.
+    fn edited(&mut self) {
+        if matches!(self, Status::Printed) {
+            *self = Status::Ready;
+        }
+    }
+}
+
 struct App {
     tab: Tab,
     worker: Worker,
@@ -60,29 +94,29 @@ struct App {
 }
 
 impl App {
-    fn new(ctx: egui::Context, template_path: Option<PathBuf>) -> Self {
-        let mut template = template_tab::TemplateTab::default();
-        if let Some(path) = template_path {
-            template.open(path);
-        }
+    fn with(worker: Worker, printer: Printer) -> Self {
         Self {
             tab: Tab::default(),
-            worker: Worker::spawn(ctx),
-            printer: Printer::load(),
+            worker,
+            printer,
             copies: 1,
             density: 8,
             status: Status::Ready,
-            template,
+            template: Default::default(),
             image: Default::default(),
         }
     }
 
-    /// A dropped .toml opens as a template; anything else is tried as an image.
-    fn handle_drops(&mut self, ctx: &egui::Context) {
+    /// A dropped .toml opens as a template; anything else is tried as an
+    /// image. Returns whether anything was dropped.
+    fn handle_drops(&mut self, ctx: &egui::Context) -> bool {
         let dropped = ctx.input(|input| input.raw.dropped_files.clone());
-        for file in dropped {
+        for file in &dropped {
             let path = file.path().to_path_buf();
-            if path.extension().is_some_and(|ext| ext == "toml") {
+            if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
+            {
                 self.template.open(path);
                 self.tab = Tab::Template;
             } else {
@@ -90,6 +124,7 @@ impl App {
                 self.tab = Tab::Image;
             }
         }
+        !dropped.is_empty()
     }
 
     fn busy(&self) -> bool {
@@ -97,22 +132,153 @@ impl App {
     }
 
     /// Copies, darkness and the Print button for whichever tab is showing.
-    /// `job` is `None` while the form is incomplete.
-    fn print_card(&mut self, ui: &mut egui::Ui, job: Option<Job>) {
-        let ready = job.is_some() && self.printer.selected.is_some() && !self.busy();
-        let has_printer = self.printer.selected.is_some();
+    /// `job` is the reason Print is unavailable while the form is incomplete.
+    fn print_card(&mut self, ui: &mut egui::Ui, job: Result<Job, &'static str>) {
+        let hint = print_hint(
+            self.printer.selected.is_some(),
+            self.printer.scanning(),
+            job.as_ref().err().copied(),
+        );
+        let ready = hint.is_none() && !self.busy();
         let print = theme::card(ui, |ui| {
-            print_controls(ui, &mut self.copies, &mut self.density, ready, has_printer)
+            ui.set_width(ui.available_width());
+            print_controls(ui, &mut self.copies, &mut self.density, ready, hint)
         });
-        if print && let (Some(address), Some(job)) = (self.printer.selected, job) {
-            self.worker.send(Request::Print(PrintRequest {
+        if print && let (Some(address), Ok(job)) = (self.printer.selected, job) {
+            let request = Request::Print(PrintRequest {
                 address,
                 copies: self.copies,
                 density: self.density,
                 job,
-            }));
-            self.status = Status::Working(Stage::Connecting);
+            });
+            self.status = match self.worker.send(request) {
+                Ok(()) => Status::Working(Stage::Connecting),
+                Err(problem) => Status::Failed(problem),
+            };
         }
+    }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        for event in self.worker.poll() {
+            match event {
+                Event::Scanned(result) => self.printer.scanned(result),
+                Event::Stage(stage) => self.status = Status::Working(stage),
+                Event::Printed(Ok(())) => self.status = Status::Printed,
+                Event::Printed(Err(problem)) => self.status = Status::Failed(problem),
+            }
+        }
+
+        let busy = self.busy();
+        egui::Panel::top("printer").show(ui, |ui| {
+            ui.add_space(10.0);
+            self.printer.ui(ui, &self.worker, busy);
+            ui.add_space(6.0);
+        });
+        egui::Panel::bottom("status").show(ui, |ui| {
+            ui.add_space(6.0);
+            status_ui(ui, &self.status);
+            ui.add_space(6.0);
+        });
+        egui::CentralPanel::default().show(ui, |ui| {
+            let mut edited = false;
+            ui.horizontal(|ui| {
+                edited |= ui
+                    .selectable_value(&mut self.tab, Tab::Template, "Template")
+                    .changed();
+                edited |= ui
+                    .selectable_value(&mut self.tab, Tab::Image, "Image")
+                    .changed();
+            });
+            ui.add_space(8.0);
+            let ctx = ui.ctx().clone();
+            edited |= self.handle_drops(&ctx);
+            let (mut form, mut preview) = columns(ui);
+            // Problems and hints add lines to the form; scrolling keeps Print
+            // reachable in a short window.
+            let form_scroll = egui::ScrollArea::vertical()
+                .id_salt("form")
+                .auto_shrink([false, true]);
+            match self.tab {
+                Tab::Template => {
+                    edited |= form_scroll
+                        .show(&mut form, |form| {
+                            let edited = self.template.form_ui(form);
+                            form.add_space(8.0);
+                            let job = self.template.job();
+                            self.print_card(form, job);
+                            edited
+                        })
+                        .inner;
+                    self.template.preview_ui(&mut preview);
+                }
+                Tab::Image => {
+                    let media = self.printer.media.clone();
+                    edited |= form_scroll
+                        .show(&mut form, |form| {
+                            let edited = self.image.form_ui(form, media.as_ref());
+                            form.add_space(8.0);
+                            let job = self.image.job(media.as_ref());
+                            self.print_card(form, job);
+                            edited
+                        })
+                        .inner;
+                    self.image.preview_ui(&mut preview, media.as_ref());
+                }
+            }
+            if edited {
+                self.status.edited();
+            }
+        });
+    }
+}
+
+/// Splits the rest of `ui` into the form and, on the right, a preview column
+/// just wide enough to show the label at whole zoom. The form gets the rest.
+fn columns(ui: &mut egui::Ui) -> (egui::Ui, egui::Ui) {
+    let rect = ui.available_rect_before_wrap();
+    let preview_width = preview::column_width(
+        rect.width() - FORM_MIN_WIDTH - COLUMN_GAP,
+        ui.pixels_per_point(),
+    );
+    let split = rect.max.x - preview_width;
+    let column = |ui: &mut egui::Ui, salt: &str, rect: egui::Rect| {
+        ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt(salt)
+                .max_rect(rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        )
+    };
+    let form = column(
+        ui,
+        "form",
+        egui::Rect::from_min_max(rect.min, egui::pos2(split - COLUMN_GAP, rect.max.y)),
+    );
+    let preview = column(
+        ui,
+        "preview",
+        egui::Rect::from_min_max(egui::pos2(split, rect.min.y), rect.max),
+    );
+    (form, preview)
+}
+
+/// Why Print can't be pressed yet, in the order the person should fix things.
+/// `form` is the open tab's reason, if it has one.
+fn print_hint(
+    has_printer: bool,
+    scanning: bool,
+    form: Option<&'static str>,
+) -> Option<&'static str> {
+    if !has_printer {
+        Some("Choose a printer first")
+    } else if form.is_some() {
+        form
+    } else if scanning {
+        Some("Wait for the printer search to finish")
+    } else {
+        None
     }
 }
 
@@ -123,7 +289,7 @@ fn print_controls(
     copies: &mut u16,
     density: &mut u8,
     ready: bool,
-    has_printer: bool,
+    hint: Option<&str>,
 ) -> bool {
     ui.horizontal(|ui| {
         let label = ui.label("Copies");
@@ -135,8 +301,10 @@ fn print_controls(
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         let clicked = theme::primary_button(ui, "Print", ready).clicked();
-        if !has_printer {
-            ui.label(egui::RichText::new("Choose a printer first").color(theme::palette(ui).muted));
+        if let Some(hint) = hint {
+            ui.add(
+                egui::Label::new(egui::RichText::new(hint).color(theme::palette(ui).muted)).wrap(),
+            );
         }
         clicked
     })
@@ -160,64 +328,54 @@ fn status_ui(ui: &mut egui::Ui, status: &Status) {
         Status::Printed => {
             ui.label(egui::RichText::new("✓ Printed.").color(p.success));
         }
-        Status::Failed(problem) => {
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new(&problem.summary).color(p.error));
-                ui.collapsing("Details", |ui| {
-                    ui.label(egui::RichText::new(&problem.details).monospace());
-                });
-            });
-        }
+        Status::Failed(problem) => problem_ui(ui, problem),
     });
 }
 
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        for event in self.worker.poll() {
-            match event {
-                Event::Scanned(result) => self.printer.scanned(result),
-                Event::Stage(stage) => self.status = Status::Working(stage),
-                Event::Printed(Ok(())) => self.status = Status::Printed,
-                Event::Printed(Err(problem)) => self.status = Status::Failed(problem),
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        egui::Panel::top("printer").show(ui, |ui| {
-            ui.add_space(10.0);
-            self.printer.ui(ui, &self.worker);
-            ui.add_space(6.0);
+    #[test]
+    fn editing_clears_printed_but_not_failures() {
+        let mut status = Status::Printed;
+        status.edited();
+        assert!(matches!(status, Status::Ready));
+
+        let mut status = Status::Working(Stage::Printing);
+        status.edited();
+        assert!(matches!(status, Status::Working(Stage::Printing)));
+
+        let mut status = Status::Failed(Problem {
+            summary: "x".into(),
+            details: "y".into(),
         });
-        egui::Panel::bottom("status").show(ui, |ui| {
-            ui.add_space(6.0);
-            status_ui(ui, &self.status);
-            ui.add_space(6.0);
-        });
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.tab, Tab::Template, "Template");
-                ui.selectable_value(&mut self.tab, Tab::Image, "Image");
-            });
-            ui.add_space(8.0);
-            let ctx = ui.ctx().clone();
-            self.handle_drops(&ctx);
-            ui.columns(2, |columns| match self.tab {
-                Tab::Template => {
-                    self.template.form_ui(&mut columns[0]);
-                    columns[0].add_space(8.0);
-                    let job = self.template.job();
-                    self.print_card(&mut columns[0], job);
-                    self.template.preview_ui(&mut columns[1]);
-                }
-                Tab::Image => {
-                    let media = self.printer.media.clone();
-                    self.image.form_ui(&mut columns[0], media.as_ref());
-                    columns[0].add_space(8.0);
-                    let job = self.image.job(media.as_ref());
-                    self.print_card(&mut columns[0], job);
-                    self.image.preview_ui(&mut columns[1], media.as_ref());
-                }
-            });
-        });
+        status.edited();
+        assert!(matches!(status, Status::Failed(_)));
+    }
+
+    #[test]
+    fn print_hints_come_in_the_order_to_fix_them() {
+        let form = Some("Fill in the form to print");
+        assert_eq!(
+            print_hint(false, true, form),
+            Some("Choose a printer first")
+        );
+        assert_eq!(print_hint(true, true, form), form);
+        assert_eq!(
+            print_hint(true, true, None),
+            Some("Wait for the printer search to finish")
+        );
+        assert_eq!(print_hint(true, false, None), None);
+    }
+
+    #[test]
+    fn the_minimum_window_fits_the_head_at_one_pixel_per_dot() {
+        let available = MIN_WIDTH - 2.0 * PANEL_MARGIN - FORM_MIN_WIDTH - COLUMN_GAP;
+        assert_eq!(
+            preview::Zoom::fit(available - preview::CHROME, 1.0, preview::HEAD_DOTS),
+            Some(preview::Zoom::Whole(1))
+        );
     }
 }
 

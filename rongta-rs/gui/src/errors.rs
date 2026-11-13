@@ -1,10 +1,39 @@
 //! Errors phrased for the person at the printer, with the technical chain
 //! kept for anyone helping them.
+use crate::theme;
+use eframe::egui;
+
+/// The summary for failures nobody anticipated.
+pub const UNEXPECTED: &str =
+    "Something went wrong. The details below may help whoever set this up.";
 
 #[derive(Clone, Debug)]
 pub struct Problem {
     pub summary: String,
     pub details: String,
+}
+
+impl Problem {
+    /// A problem whose summary the caller already knows, keeping `error`'s
+    /// whole chain as the details.
+    pub fn new(summary: impl Into<String>, error: &anyhow::Error) -> Self {
+        Self {
+            summary: summary.into(),
+            details: format!("{error:#}"),
+        }
+    }
+}
+
+/// The summary in the error colour, with the technical chain folded away
+/// under "Details" so it doesn't alarm the person printing.
+pub fn problem_ui(ui: &mut egui::Ui, problem: &Problem) {
+    let p = theme::palette(ui);
+    ui.vertical(|ui| {
+        ui.label(egui::RichText::new(&problem.summary).color(p.error));
+        ui.collapsing("Details", |ui| {
+            ui.label(egui::RichText::new(&problem.details).monospace());
+        });
+    });
 }
 
 impl From<&anyhow::Error> for Problem {
@@ -28,7 +57,7 @@ impl From<&anyhow::Error> for Problem {
         {
             "Bluetooth isn't available. Check that it's turned on in your computer's settings."
         } else {
-            "Something went wrong. The details below may help whoever set this up."
+            UNEXPECTED
         };
         Self {
             summary: summary.to_owned(),
