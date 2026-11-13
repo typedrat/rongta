@@ -201,22 +201,32 @@ error_correction = "M"       # optional: L | M | Q | H (default M)
 content = "Scan to redeem"   # values inserted as typed
 size_mm = 3.0                # em size, 2-20 mm; shrinks to fit, never below 2 mm
 bold = false                 # optional
+align = "left"               # optional: "left" | "center" (default left)
 ```
 
-`{name}` inserts a field; `{{` and `}}` are literal braces. `size_mm` is the em
-size, so a 5 mm line has capitals about 3.3 mm tall. Layout is fixed: the QR
-code is flush right and centred vertically, with whole-dot modules of at least 3
-dots and a 4-module quiet zone. When the template has text, the code, including
-its quiet zone, is as large as the printable height allows while leaving at
-least 40% of the printable width for text; without text, it fills the shorter
-side. Text lines are stacked, left-aligned, and centred vertically in the
-remaining width, starting 1 mm in from the printable edge so that a label
-sitting slightly off-centre doesn't clip them. For `gap:50x25` the printable
-area is 384 x 184 dots. A URL of about 40 characters at error correction M is QR
-version 3 (29 modules plus an 8-module quiet zone), so modules are 4 dots and
-the code is 148 dots (18.5 mm) square, leaving a 236-dot text column of which
-228 dots hold text. Lines that would have to shrink below 2 mm to fit, and
-characters the bundled font has no glyph for, are refused.
+`{name}` inserts a field; `{{` and `}}` are literal braces. `{name.group}`
+inserts what a named group in the field's `pattern` matched, such as
+`(?<a>....)`, or nothing when the group didn't take part in the match. A text
+line that comes out empty takes no space, so one template can lay out
+differently shaped values. With `pattern =
+"(?<a>[A-Z0-9]{4})-(?<b>[A-Z0-9]{4})|(?<word>[A-Z]+)"`, lines of `{code.a}` and
+`{code.b}` stack a split code while a `{code.word}` line prints a word on its
+own, and a QR content of `{code.word}{code.a}{code.b}` drops the hyphen. A
+centred line sits midway between the text inset and the QR code. `size_mm` is
+the em size, so a 5 mm line has capitals about 3.3 mm tall. Layout is fixed: the
+QR code is flush right and centred vertically, with whole-dot modules of at
+least 3 dots and a 4-module quiet zone. When the template has text, the code,
+including its quiet zone, is as large as the printable height allows while
+leaving at least 40% of the printable width for text; without text, it fills the
+shorter side. Text lines are stacked, left-aligned unless `align` centres them,
+and centred vertically in the remaining width, starting 1 mm in from the
+printable edge so that a label sitting slightly off-centre doesn't clip them.
+For `gap:50x25` the printable area is 384 x 184 dots. A URL of about 40
+characters at error correction M is QR version 3 (29 modules plus an 8-module
+quiet zone), so modules are 4 dots and the code is 148 dots (18.5 mm) square,
+leaving a 236-dot text column of which 228 dots hold text. Lines that would have
+to shrink below 2 mm to fit, and characters the bundled font has no glyph for,
+are refused.
 
 Fill in the fields as `NAME=VALUE` arguments. With `--output`, the command
 saves a 384-dot PNG preview of the whole label canvas and never connects to a

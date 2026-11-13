@@ -15,6 +15,16 @@ pub struct Line {
     /// Em size.
     pub size_dots: f32,
     pub bold: bool,
+    pub align: Align,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Align {
+    #[default]
+    Left,
+    /// Centred between the inset and the far side of the column.
+    Center,
 }
 
 fn font(bold: bool) -> FontRef<'static> {
@@ -44,9 +54,9 @@ fn advance(font: &FontRef<'_>, scale: PxScale, text: &str) -> f32 {
     width
 }
 
-/// Stacks `lines` left-aligned and vertically centred in the first `column`
-/// dots of `canvas`, 1 mm in from its left edge, shrinking any line too wide
-/// to fit.
+/// Stacks `lines` vertically centred in the first `column` dots of `canvas`,
+/// each left-aligned 1 mm in from its left edge or centred in the rest of the
+/// column, shrinking any line too wide to fit.
 pub fn draw(canvas: &mut GrayImage, lines: &[Line], column: u32) -> Result<()> {
     let room = column.saturating_sub(INSET_DOTS) as f32;
     let mut fitted = Vec::with_capacity(lines.len());
@@ -70,11 +80,11 @@ pub fn draw(canvas: &mut GrayImage, lines: &[Line], column: u32) -> Result<()> {
             "{:?} is too long to fit beside the QR code",
             line.text
         );
-        fitted.push((scale(&font, size), font, line.text.as_str()));
+        fitted.push((scale(&font, size), font, line.text.as_str(), line.align));
     }
     let heights: Vec<f32> = fitted
         .iter()
-        .map(|(scale, font, _)| font.as_scaled(*scale).height())
+        .map(|(scale, font, ..)| font.as_scaled(*scale).height())
         .collect();
     let total: f32 = heights.iter().sum();
     ensure!(
@@ -83,10 +93,16 @@ pub fn draw(canvas: &mut GrayImage, lines: &[Line], column: u32) -> Result<()> {
     );
 
     let mut top = (canvas.height() as f32 - total) / 2.0;
-    for ((scale, font, text), height) in fitted.iter().zip(&heights) {
+    for ((scale, font, text, align), height) in fitted.iter().zip(&heights) {
         let scaled = font.as_scaled(*scale);
         let baseline = top + scaled.ascent();
         let mut x = INSET_DOTS as f32;
+        if *align == Align::Center {
+            // Whole dots keep identical lines identically rasterised.
+            x += ((room - advance(font, *scale, text)) / 2.0)
+                .max(0.0)
+                .round();
+        }
         let mut previous = None;
         for c in text.chars() {
             let id = scaled.glyph_id(c);
@@ -139,6 +155,7 @@ mod tests {
             text: text.to_owned(),
             size_dots,
             bold: false,
+            align: Align::Left,
         }
     }
 
@@ -169,6 +186,24 @@ mod tests {
         draw(&mut canvas, &[line("H", 40.0)], 400).unwrap();
         let (left, ..) = ink(&canvas).unwrap();
         assert!(left >= INSET_DOTS, "{left}");
+    }
+
+    #[test]
+    fn centred_lines_sit_midway_between_the_inset_and_the_column_edge() {
+        let column = 240;
+        let mut canvas = blank();
+        let centred = Line {
+            align: Align::Center,
+            ..line("HOH", 40.0)
+        };
+        draw(&mut canvas, &[centred], column).unwrap();
+        let (left, _, right, _) = ink(&canvas).unwrap();
+        let before = left - INSET_DOTS;
+        let after = column - 1 - right;
+        assert!(
+            before > 40 && before.abs_diff(after) <= 3,
+            "{before} vs {after}"
+        );
     }
 
     #[test]
