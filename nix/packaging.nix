@@ -97,6 +97,7 @@
         Name=Rongta Labels
         Comment=Print labels on a Rongta printer
         Exec=rongta-gui %f
+        Icon=rongta-labels
         Categories=Office;
         Terminal=false
         StartupWMClass=rongta-labels
@@ -116,6 +117,16 @@
             # The runtime mounts the image and executes AppRun from it.
             ln -s usr/bin/rongta-gui AppDir/AppRun
             cp ${desktopEntry} AppDir/rongta-labels.desktop
+            # The runtime and appimaged read the icon named by the desktop
+            # entry from the AppDir root, and file managers read .DirIcon;
+            # desktops that integrate the AppImage copy the hicolor tree.
+            cp ${rongtaIcon}/png/256.png AppDir/rongta-labels.png
+            ln -s rongta-labels.png AppDir/.DirIcon
+            for size in 16 32 48 64 128 256; do
+              dir=AppDir/usr/share/icons/hicolor/''${size}x''${size}/apps
+              mkdir -p $dir
+              cp ${rongtaIcon}/png/$size.png $dir/rongta-labels.png
+            done
             # Label text uses Atkinson Hyperlegible Next and the UI uses Inter;
             # the SIL OFL requires their licenses to ship with any copy.
             mkdir -p AppDir/usr/share/licenses/rongta-labels
