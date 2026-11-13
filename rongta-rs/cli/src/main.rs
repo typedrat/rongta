@@ -454,45 +454,36 @@ async fn main() -> Result<()> {
             let conversion = args.conversion.resolve()?;
             let source = load_image(input)?;
             init_logging(args.verbose);
-            let timeout = Duration::from_secs(args.timeout);
-            let mut nonce = [0; 8];
-            getrandom::fill(&mut nonce).context("Generating handshake nonce")?;
-            let mut connection =
-                Connection::connect(address, args.adapter.as_deref(), args.pin, timeout).await?;
-            let mut session = client::Session::new(&mut connection.stream);
-            let info = session
-                .handshake(
-                    nonce,
-                    client::Options {
-                        timeout,
-                        ..Default::default()
-                    },
-                )
-                .await?;
-            tracing::info!(
-                width = info.model.width_dots,
-                buffer = info.protocol.buffer_length,
-                "Printer handshake complete"
-            );
-            let raster = prepare_image(
-                &source,
-                media.as_ref(),
-                &args.preparation,
-                info.model.width_dots,
-                conversion,
-            )?;
             let options = rongta::printing::PrintOptions {
                 copies: args.copies,
                 density: args.density,
                 speed: args.speed,
                 feed_length: args.feed_length,
-                timeout,
+                timeout: Duration::from_secs(args.timeout),
                 command_delay: Duration::from_millis(args.command_delay_ms),
                 packet_delay: Duration::from_millis(args.packet_delay_ms),
                 ..Default::default()
             };
-            let report = session.print(&info, &raster, options).await
-                .context("Print job failed; any bytes already sent cannot be recalled; check the printer before retrying")?;
+            let (_, report) = rongta_host::job::print(
+                rongta_host::job::Target {
+                    address,
+                    adapter: args.adapter.as_deref(),
+                    pin: args.pin,
+                    timeout: Duration::from_secs(args.timeout),
+                },
+                |info| {
+                    prepare_image(
+                        &source,
+                        media.as_ref(),
+                        &args.preparation,
+                        info.model.width_dots,
+                        conversion,
+                    )
+                },
+                options,
+                |_| {},
+            )
+            .await?;
             serde_json::to_writer_pretty(&mut output, &report)?;
             writeln!(output)?;
         }
