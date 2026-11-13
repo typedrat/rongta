@@ -43,6 +43,20 @@
             # BlueZ is reached over D-Bus; macOS links its system frameworks instead.
             buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
           };
+          # winit and wgpu dlopen these at run time rather than linking them.
+          guiLibraries = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
+            with pkgs;
+            [
+              libGL
+              libxkbcommon
+              vulkan-loader
+              wayland
+              libx11
+              libxcursor
+              libxi
+              libxrandr
+            ]
+          );
           rongta = craneLib.buildPackage (
             commonArgs
             // {
@@ -117,6 +131,10 @@
                   {
                     name = "ANDROID_SDK_ROOT";
                     value = sdkRoot;
+                  }
+                  {
+                    name = "LD_LIBRARY_PATH";
+                    prefix = pkgs.lib.makeLibraryPath guiLibraries;
                   }
                 ];
 

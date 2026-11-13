@@ -1,0 +1,20 @@
+[package]
+name = "rongta-gui"
+version = "0.1.0"
+edition = "2024"
+description = "Desktop app for printing labels and images on Rongta printers"
+publish = false
+
+[[bin]]
+name = "rongta-gui"
+path = "src/main.rs"
+
+[dependencies]
+rongta = { path = ".." }
+rongta-host = { path = "../host" }
+rongta-template = { path = "../template" }
+anyhow = "1"
+eframe = "0.37"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "pnm"] }
+rfd = "0.18"
+tokio = { version = "1", features = ["rt", "time", "sync"] }
