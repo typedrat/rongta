@@ -26,11 +26,12 @@ impl Connection {
     /// Discover only as needed, pair through BlueZ, and connect the selected MAC.
     /// No adapter power or system service settings are changed.
     pub async fn connect(
-        address: Address,
+        address: super::Address,
         adapter: Option<&str>,
         pin: Option<String>,
         timeout: Duration,
     ) -> Result<Self> {
+        let address = Address(address.0);
         tokio::time::timeout(timeout, Self::connect_inner(address, adapter, pin))
             .await
             .with_context(|| {
@@ -157,15 +158,28 @@ impl Connection {
 }
 
 /// Linux implementation of the portable discovery interface.
-pub struct BlueZDiscovery<'a> {
+pub struct SystemDiscovery<'a> {
     pub adapter_name: Option<&'a str>,
 }
 
-impl Discovery for BlueZDiscovery<'_> {
-    type DeviceId = Address;
+impl Discovery for SystemDiscovery<'_> {
+    type DeviceId = super::Address;
 
-    async fn discover(&mut self, duration: Duration) -> Result<Vec<ScanDevice<Address>>> {
-        scan(self.adapter_name, duration).await
+    async fn discover(&mut self, duration: Duration) -> Result<Vec<ScanDevice<super::Address>>> {
+        let devices = scan(self.adapter_name, duration).await?;
+        Ok(devices
+            .into_iter()
+            .map(|device| ScanDevice {
+                address: super::Address(device.address.0),
+                name: device.name,
+                rssi: device.rssi,
+                class: device.class,
+                paired: device.paired,
+                connected: device.connected,
+                spp: device.spp,
+                known_before_scan: device.known_before_scan,
+            })
+            .collect())
     }
 }
 

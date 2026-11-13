@@ -18,7 +18,11 @@
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [ inputs.devshell.flakeModule ];
-      systems = [ "x86_64-linux" ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ];
 
       perSystem =
         { pkgs, system, ... }:
@@ -32,8 +36,9 @@
             };
             strictDeps = true;
             cargoExtraArgs = "--workspace";
-            nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ pkgs.dbus ];
+            nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.pkg-config ];
+            # BlueZ is reached over D-Bus; macOS links its system frameworks instead.
+            buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
           };
           rongta = craneLib.buildPackage (
             commonArgs
@@ -42,13 +47,18 @@
               meta.mainProgram = "rongta";
             }
           );
+          # Google publishes the Android Emulator for x86_64 Linux hosts only, so
+          # elsewhere a system image would have nothing to run it.
+          # TODO(#1): aarch64 hosts have no Android VM; Cuttlefish may replace it.
+          hasEmulator = pkgs.stdenv.hostPlatform.isx86_64;
           android = pkgs.androidenv.composeAndroidPackages {
             platformVersions = [ "35" ];
             buildToolsVersions = [ "35.0.0" ];
             toolsVersion = null;
-            includeEmulator = true;
-            includeSystemImages = true;
+            includeEmulator = hasEmulator;
+            includeSystemImages = hasEmulator;
             systemImageTypes = [ "google_apis" ];
+            # The stock app's ARM64 libraries run through this image's translation.
             abiVersions = [ "x86_64" ];
           };
           sdkRoot = "${android.androidsdk}/libexec/android-sdk";
@@ -67,115 +77,142 @@
             default = rongta;
           };
 
-          devshells.default = {
-            packages = [
-              android.androidsdk
-              pkgs.python3Packages.bumble
-              pkgs.bluez
-              pkgs.wireshark
-              pkgs.cargo
-              pkgs.rustc
-              pkgs.rustfmt
-              pkgs.clippy
-              pkgs.rust-analyzer
-              pkgs.stdenv.cc
-              pkgs.pkg-config
-              pkgs.dbus
-              pkgs.jdk
-            ];
-
-            env = [
+          # Android emulation and BlueZ capture tooling is Linux-only; other hosts
+          # get just the Rust toolchain.
+          devshells.default =
+            if pkgs.stdenv.hostPlatform.isLinux then
               {
-                name = "PKG_CONFIG_PATH";
-                prefix = "${pkgs.dbus.dev}/lib/pkgconfig";
+                packages = [
+                  android.androidsdk
+                  pkgs.python3Packages.bumble
+                  pkgs.bluez
+                  pkgs.wireshark
+                  pkgs.cargo
+                  pkgs.rustc
+                  pkgs.rustfmt
+                  pkgs.clippy
+                  pkgs.rust-analyzer
+                  pkgs.stdenv.cc
+                  pkgs.pkg-config
+                  pkgs.dbus
+                  pkgs.jdk
+                ];
+
+                env = [
+                  {
+                    name = "PKG_CONFIG_PATH";
+                    prefix = "${pkgs.dbus.dev}/lib/pkgconfig";
+                  }
+                  {
+                    name = "RUST_SRC_PATH";
+                    value = "${pkgs.rustPlatform.rustLibSrc}";
+                  }
+                  {
+                    name = "ANDROID_HOME";
+                    value = sdkRoot;
+                  }
+                  {
+                    name = "ANDROID_SDK_ROOT";
+                    value = sdkRoot;
+                  }
+                ];
+
+                commands = [
+                  {
+                    name = "bt-bridge";
+                    category = "android";
+                    help = "Bridge hci0 to Android on port 8877 and capture traffic (requires hci0 down)";
+                    command = ''
+                      set -euo pipefail
+
+                      if ! adapter_state="$(LC_ALL=C ${pkgs.bluez}/bin/hciconfig hci0)"; then
+                        printf '%s\n' 'Cannot read hci0 state; Bluetooth bridge was not started.' >&2
+                        exit 1
+                      fi
+
+                      if ${pkgs.gnugrep}/bin/grep -Eq '^[[:space:]]*UP([[:space:]]|$)' <<< "$adapter_state"; then
+                        printf '%s\n' \
+                          'hci0 is UP. Run bt-prepare as root, then retry bt-bridge.' \
+                          'bt-prepare stops host Bluetooth and disconnects its peripherals.' >&2
+                        exit 1
+                      fi
+
+                      if ! ${pkgs.gnugrep}/bin/grep -Eq '^[[:space:]]*DOWN([[:space:]]|$)' <<< "$adapter_state"; then
+                        printf '%s\n' 'Cannot determine whether hci0 is DOWN; Bluetooth bridge was not started.' >&2
+                        exit 1
+                      fi
+
+                      capture_dir="$(${pkgs.coreutils}/bin/mktemp -d /tmp/rongta-capture.XXXXXXXX)"
+                      (
+                        umask 077
+                        : > "$capture_dir/rongta-0.btsnoop"
+                        : > "$capture_dir/rongta-1.btsnoop"
+                      )
+                      if (( EUID == 0 )) && [[ -n "''${SUDO_UID:-}" && -n "''${SUDO_GID:-}" ]]; then
+                        ${pkgs.coreutils}/bin/chown "''${SUDO_UID}:''${SUDO_GID}" \
+                          "$capture_dir" "$capture_dir/"*.btsnoop
+                      fi
+                      printf 'Captures: %s\n' "$capture_dir" >&2
+
+                      exec env \
+                        BUMBLE_SNOOPER="btsnoop:file:$capture_dir/rongta-{instance}.btsnoop" \
+                        ${pkgs.python3Packages.bumble}/bin/bumble-hci-bridge \
+                        android-netsim:127.0.0.1:8877,mode=controller \
+                        hci-socket:0 "$@"
+                    '';
+                  }
+                  {
+                    name = "bt-prepare";
+                    category = "android";
+                    help = "Stop host Bluetooth and take hci0 down (run as root)";
+                    command = ''
+                      set -euo pipefail
+
+                      if (( EUID != 0 )); then
+                        printf '%s\n' 'Run bt-prepare as root using your preferred privilege tool.' >&2
+                        exit 1
+                      fi
+
+                      ${pkgs.systemd}/bin/systemctl stop bluetooth.service
+                      ${pkgs.bluez}/bin/hciconfig hci0 down
+                    '';
+                  }
+                  {
+                    name = "emu";
+                    category = "android";
+                    help = "Launch the rongta-arm64 Pixel 5 AVD connected to the Bluetooth bridge";
+                    command =
+                      if hasEmulator then
+                        ''
+                          exec ${android.androidsdk}/bin/emulator \
+                            -avd rongta-arm64 \
+                            -packet-streamer-endpoint 127.0.0.1:8877 \
+                            -no-snapshot "$@"
+                        ''
+                      else
+                        ''
+                          printf '%s\n' 'The Android Emulator is only available on x86_64 Linux hosts.' >&2
+                          exit 1
+                        '';
+                  }
+                ];
               }
+            else
               {
-                name = "RUST_SRC_PATH";
-                value = "${pkgs.rustPlatform.rustLibSrc}";
-              }
-              {
-                name = "ANDROID_HOME";
-                value = sdkRoot;
-              }
-              {
-                name = "ANDROID_SDK_ROOT";
-                value = sdkRoot;
-              }
-            ];
-
-            commands = [
-              {
-                name = "bt-bridge";
-                category = "android";
-                help = "Bridge hci0 to Android on port 8877 and capture traffic (requires hci0 down)";
-                command = ''
-                  set -euo pipefail
-
-                  if ! adapter_state="$(LC_ALL=C ${pkgs.bluez}/bin/hciconfig hci0)"; then
-                    printf '%s\n' 'Cannot read hci0 state; Bluetooth bridge was not started.' >&2
-                    exit 1
-                  fi
-
-                  if ${pkgs.gnugrep}/bin/grep -Eq '^[[:space:]]*UP([[:space:]]|$)' <<< "$adapter_state"; then
-                    printf '%s\n' \
-                      'hci0 is UP. Run bt-prepare as root, then retry bt-bridge.' \
-                      'bt-prepare stops host Bluetooth and disconnects its peripherals.' >&2
-                    exit 1
-                  fi
-
-                  if ! ${pkgs.gnugrep}/bin/grep -Eq '^[[:space:]]*DOWN([[:space:]]|$)' <<< "$adapter_state"; then
-                    printf '%s\n' 'Cannot determine whether hci0 is DOWN; Bluetooth bridge was not started.' >&2
-                    exit 1
-                  fi
-
-                  capture_dir="$(${pkgs.coreutils}/bin/mktemp -d /tmp/rongta-capture.XXXXXXXX)"
-                  (
-                    umask 077
-                    : > "$capture_dir/rongta-0.btsnoop"
-                    : > "$capture_dir/rongta-1.btsnoop"
-                  )
-                  if (( EUID == 0 )) && [[ -n "''${SUDO_UID:-}" && -n "''${SUDO_GID:-}" ]]; then
-                    ${pkgs.coreutils}/bin/chown "''${SUDO_UID}:''${SUDO_GID}" \
-                      "$capture_dir" "$capture_dir/"*.btsnoop
-                  fi
-                  printf 'Captures: %s\n' "$capture_dir" >&2
-
-                  exec env \
-                    BUMBLE_SNOOPER="btsnoop:file:$capture_dir/rongta-{instance}.btsnoop" \
-                    ${pkgs.python3Packages.bumble}/bin/bumble-hci-bridge \
-                    android-netsim:127.0.0.1:8877,mode=controller \
-                    hci-socket:0 "$@"
-                '';
-              }
-              {
-                name = "bt-prepare";
-                category = "android";
-                help = "Stop host Bluetooth and take hci0 down (run as root)";
-                command = ''
-                  set -euo pipefail
-
-                  if (( EUID != 0 )); then
-                    printf '%s\n' 'Run bt-prepare as root using your preferred privilege tool.' >&2
-                    exit 1
-                  fi
-
-                  ${pkgs.systemd}/bin/systemctl stop bluetooth.service
-                  ${pkgs.bluez}/bin/hciconfig hci0 down
-                '';
-              }
-              {
-                name = "emu";
-                category = "android";
-                help = "Launch the rongta-arm64 Pixel 5 AVD connected to the Bluetooth bridge";
-                command = ''
-                  exec ${android.androidsdk}/bin/emulator \
-                    -avd rongta-arm64 \
-                    -packet-streamer-endpoint 127.0.0.1:8877 \
-                    -no-snapshot "$@"
-                '';
-              }
-            ];
-          };
+                packages = [
+                  pkgs.cargo
+                  pkgs.rustc
+                  pkgs.rustfmt
+                  pkgs.clippy
+                  pkgs.rust-analyzer
+                ];
+                env = [
+                  {
+                    name = "RUST_SRC_PATH";
+                    value = "${pkgs.rustPlatform.rustLibSrc}";
+                  }
+                ];
+              };
 
           formatter = pkgs.nixfmt-tree;
         };

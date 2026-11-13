@@ -14,6 +14,8 @@ SDK-validated formats.
 | --- | --- |
 | CLI declarations, help, completion support | `usage-rs`, aliased as `usage` |
 | BlueZ discovery, pairing, RFCOMM profiles | `bluer` with `bluetoothd` and `rfcomm` |
+| macOS discovery, pairing, RFCOMM | `objc2-io-bluetooth`, `objc2-foundation`, `objc2-core-foundation` |
+| Windows discovery, pairing, RFCOMM sockets | `windows` (Win32 Bluetooth and Winsock) |
 | Async I/O, timeouts, buffered framing | `tokio`, `tokio-util` with `codec`, `bytes` |
 | Binary headers, payloads, packed fields | `deku` |
 | Parameterized checksums | `crc` |
