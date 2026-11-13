@@ -50,6 +50,7 @@ fn invalid_templates_explain_the_problem() {
             EXAMPLE.replace("size_mm = 3.0", "size_mm = 40.0"),
             "size_mm",
         ),
+        (EXAMPLE.replace("size_mm = 3.0", "size_mm = 1.5"), "size_mm"),
         (format!("{EXAMPLE}\nsurprise = true\n"), "surprise"),
     ] {
         let error = format!("{:#}", Template::parse(&source).unwrap_err());

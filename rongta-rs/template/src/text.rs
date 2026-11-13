@@ -1,4 +1,4 @@
-//! Single-line text at the printer's dot pitch.
+//! Draws lines of text at the printer's dot pitch.
 use crate::fonts;
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use anyhow::{Result, ensure};

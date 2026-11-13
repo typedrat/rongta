@@ -191,8 +191,8 @@ impl Template {
         let mut lines = Vec::new();
         for line in raw.lines {
             ensure!(
-                line.size_mm.is_finite() && (1.0..=20.0).contains(&line.size_mm),
-                "Text size_mm must be between 1 and 20, not {}",
+                line.size_mm.is_finite() && (2.0..=20.0).contains(&line.size_mm),
+                "Text size_mm must be between 2 and 20, not {}",
                 line.size_mm
             );
             let content = interpolate::parse(&line.content).context("In [[text]] content")?;
