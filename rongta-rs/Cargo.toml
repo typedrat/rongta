@@ -6,8 +6,8 @@ description = "Portable Rongta R22 printer protocol and image processing"
 publish = false
 
 [workspace]
-members = ["cli", "host"]
-default-members = [".", "cli", "host"]
+members = ["cli", "host", "template"]
+default-members = [".", "cli", "host", "template"]
 resolver = "3"
 
 [dependencies]
