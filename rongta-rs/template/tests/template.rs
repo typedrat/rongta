@@ -53,6 +53,10 @@ fn invalid_templates_explain_the_problem() {
             "size_mm",
         ),
         (EXAMPLE.replace("size_mm = 3.0", "size_mm = 1.5"), "size_mm"),
+        (
+            EXAMPLE.replace("bold = true", "bold = true\nalign = \"middle\""),
+            "middle",
+        ),
         (format!("{EXAMPLE}\nsurprise = true\n"), "surprise"),
     ] {
         let error = format!("{:#}", Template::parse(&source).unwrap_err());
@@ -207,4 +211,88 @@ fn render_refuses_invalid_values_and_oversized_content() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("QR"), "{error}");
+}
+
+const GROUPED: &str = r#"
+version = 1
+name = "Invite"
+media = "gap:50x25"
+
+[[field]]
+id = "code"
+label = "Code"
+pattern = "(?<a>[A-Z0-9]{4})-?(?<b>[A-Z0-9]{4})-?(?<c>[A-Z0-9]{4})|(?<word>[A-Z]{4,20})"
+case = "upper"
+
+[qr]
+content = "https://example.com/invite/{code.word}{code.a}{code.b}{code.c}"
+
+[[text]]
+content = "{code.word}"
+size_mm = 5.0
+bold = true
+
+[[text]]
+content = "{code.a}"
+size_mm = 5.0
+bold = true
+
+[[text]]
+content = "{code.b}"
+size_mm = 5.0
+bold = true
+
+[[text]]
+content = "{code.c}"
+size_mm = 5.0
+bold = true
+"#;
+
+/// Runs of consecutive pixel rows with ink left of the QR code.
+fn text_bands(image: &image::RgbaImage, column: u32) -> usize {
+    let inked = |y: u32| (0..column).any(|x| image.get_pixel(x, y).0[0] == 0);
+    let mut bands = 0;
+    let mut previous = false;
+    for y in 0..image.height() {
+        let now = inked(y);
+        if now && !previous {
+            bands += 1;
+        }
+        previous = now;
+    }
+    bands
+}
+
+#[test]
+fn pattern_groups_split_a_value_and_empty_lines_are_skipped() {
+    let template = Template::parse(GROUPED).unwrap();
+
+    let split = template.normalize(&values(&[("code", "4h3y-m60s-jhe2")]));
+    let image = template.render(&split).unwrap();
+    assert_eq!(decode_qr(&image), "https://example.com/invite/4H3YM60SJHE2");
+    let column = 384 - expected_qr_side(&template, "https://example.com/invite/4H3YM60SJHE2");
+    assert_eq!(text_bands(&image, column), 3);
+
+    let word = template.normalize(&values(&[("code", "metagame")]));
+    let image = template.render(&word).unwrap();
+    assert_eq!(decode_qr(&image), "https://example.com/invite/METAGAME");
+    let column = 384 - expected_qr_side(&template, "https://example.com/invite/METAGAME");
+    assert_eq!(text_bands(&image, column), 1);
+}
+
+#[test]
+fn group_placeholders_must_name_a_group_in_the_fields_pattern() {
+    for (source, needle) in [
+        (
+            GROUPED.replace("{code.c}\"\n", "{code.d}\"\n"),
+            "{code.d}: field \"code\" has no group \"d\" in its pattern",
+        ),
+        (
+            EXAMPLE.replace("code={code}", "code={code.a}"),
+            "{code.a}: field \"code\" has no group \"a\" in its pattern",
+        ),
+    ] {
+        let error = format!("{:#}", Template::parse(&source).unwrap_err());
+        assert!(error.contains(needle), "{needle:?} not in {error:?}");
+    }
 }

@@ -31,8 +31,8 @@ impl Template {
         );
         let (width, height) = self.printable_size();
         let mut canvas = GrayImage::from_pixel(width, height, Luma([255]));
-        let url = interpolate::fill(&self.qr, |name| {
-            utf8_percent_encode(&values[name], COMPONENT).to_string()
+        let url = interpolate::fill(&self.qr, |placeholder| {
+            utf8_percent_encode(&self.resolve(values, placeholder), COMPONENT).to_string()
         });
         // Text needs at least 40% of the width to stay legible beside the code.
         let max_side = if self.lines.is_empty() {
@@ -41,14 +41,21 @@ impl Template {
             height.min(width - (width * 2).div_ceil(5))
         };
         let column = qr::draw(&mut canvas, &url, self.error_correction, max_side)?;
+        // A line can come out empty when its groups didn't take part in the
+        // match, which is how one template lays out values of different
+        // shapes; it takes no space.
         let lines: Vec<text::Line> = self
             .lines
             .iter()
             .map(|line| text::Line {
-                text: interpolate::fill(&line.content, |name| values[name].clone()),
+                text: interpolate::fill(&line.content, |placeholder| {
+                    self.resolve(values, placeholder)
+                }),
                 size_dots: (line.size_mm * 8.0) as f32,
                 bold: line.bold,
+                align: line.align,
             })
+            .filter(|line| !line.text.is_empty())
             .collect();
         text::draw(&mut canvas, &lines, column)?;
         Ok(DynamicImage::ImageLuma8(canvas).into_rgba8())

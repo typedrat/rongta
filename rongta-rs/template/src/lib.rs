@@ -15,7 +15,7 @@ mod fonts {
 }
 
 use anyhow::{Context, Result, ensure};
-use interpolate::Piece;
+use interpolate::{Piece, Placeholder};
 use regex::Regex;
 use rongta::media::Media;
 use serde::Deserialize;
@@ -67,6 +67,7 @@ struct TextLine {
     content: Vec<Piece>,
     size_mm: f64,
     bold: bool,
+    align: text::Align,
 }
 
 #[derive(Clone, Debug)]
@@ -118,6 +119,8 @@ struct RawText {
     size_mm: f64,
     #[serde(default)]
     bold: bool,
+    #[serde(default)]
+    align: text::Align,
 }
 
 impl Template {
@@ -178,11 +181,21 @@ impl Template {
 
         let declared = |pieces: &[Piece]| -> Result<()> {
             for piece in pieces {
-                if let Piece::Field(name) = piece {
-                    ensure!(
-                        fields.iter().any(|f| &f.id == name),
-                        "{{{name}}} does not name a declared field"
-                    );
+                if let Piece::Field(placeholder) = piece {
+                    let field = fields
+                        .iter()
+                        .find(|f| f.id == placeholder.field)
+                        .with_context(|| format!("{placeholder} does not name a declared field"))?;
+                    if let Some(group) = &placeholder.group {
+                        ensure!(
+                            field
+                                .pattern
+                                .as_ref()
+                                .is_some_and(|p| p.capture_names().flatten().any(|n| n == group)),
+                            "{placeholder}: field {:?} has no group {group:?} in its pattern",
+                            field.id
+                        );
+                    }
                 }
             }
             Ok(())
@@ -202,6 +215,7 @@ impl Template {
                 content,
                 size_mm: line.size_mm,
                 bold: line.bold,
+                align: line.align,
             });
         }
 
@@ -258,6 +272,22 @@ impl Template {
                 })
             })
             .collect()
+    }
+
+    /// The text a placeholder stands for in checked `values`: a group the
+    /// value's match didn't take part in is empty.
+    fn resolve(&self, values: &Values, placeholder: &Placeholder) -> String {
+        let value = &values[&placeholder.field];
+        let Some(group) = &placeholder.group else {
+            return value.clone();
+        };
+        self.fields
+            .iter()
+            .find(|f| f.id == placeholder.field)
+            .and_then(|f| f.pattern.as_ref())
+            .and_then(|p| p.captures(value))
+            .and_then(|c| c.name(group))
+            .map_or_else(String::new, |m| m.as_str().to_owned())
     }
 
     /// The gap labels this template is drawn for.
