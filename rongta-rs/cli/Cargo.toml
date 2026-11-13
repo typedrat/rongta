@@ -11,54 +11,22 @@ path = "src/main.rs"
 
 [dependencies]
 rongta = { path = ".." }
+rongta-host = { path = "../host" }
+rongta-template = { path = "../template" }
 anyhow = "1"
 bytes = "1"
-confique = { version = "0.4", features = ["toml"] }
 dialoguer = { version = "0.12", default-features = false }
-directories = "6"
-futures-util = "0.3"
 getrandom = "0.4"
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["png", "pnm"] }
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "time", "signal", "sync"] }
 tokio-util = { version = "0.7", features = ["codec"] }
-toml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 usage = { package = "usage-rs", version = "6", features = ["completions"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
+toml = "0.9"
 usage = { package = "usage-rs", version = "6", features = ["test"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDate", "CFRunLoop"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSObject", "NSString"] }
-objc2-io-bluetooth = { version = "0.3", default-features = false, features = [
-    "std",
-    "objc2",
-    "objc2-foundation",
-    "Bluetooth",
-    "IOBluetoothDevice",
-    "IOBluetoothDeviceInquiry",
-    "IOBluetoothDevicePair",
-    "IOBluetoothObject",
-    "IOBluetoothRFCOMMChannel",
-    "IOBluetoothSDPServiceRecord",
-    "IOBluetoothSDPUUID",
-    "IOBluetoothUserLib",
-] }
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
-    "Win32_Devices_Bluetooth",
-    "Win32_Foundation",
-    "Win32_Networking_WinSock",
-] }

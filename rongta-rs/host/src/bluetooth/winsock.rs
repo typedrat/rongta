@@ -47,7 +47,7 @@ pub struct Connection {
 
 impl Connection {
     /// Pair if needed, then connect to the SPP service; Windows resolves the
-    /// RFCOMM channel by SDP. Without --pin, Windows shows its pairing prompt.
+    /// RFCOMM channel by SDP. Without a PIN, Windows shows its pairing prompt.
     pub async fn connect(
         address: Address,
         adapter: Option<&str>,
@@ -55,6 +55,7 @@ impl Connection {
         timeout: Duration,
     ) -> Result<Self> {
         no_adapter_selection(adapter)?;
+        super::validate(pin.as_deref(), timeout)?;
         let (stream, ends) = bridge::stream();
         let (ready_tx, ready_rx) = oneshot::channel();
         thread::Builder::new()
@@ -202,8 +203,7 @@ fn pair(info: &mut BLUETOOTH_DEVICE_INFO, pin: Option<String>) -> Result<()> {
     if status == ERROR_NO_MORE_ITEMS.0 {
         return Ok(()); // Already paired.
     }
-    win32(status)
-        .context("Pairing failed; pair in Windows Settings or supply the printer's PIN with --pin")
+    win32(status).context("Pairing failed; pair in Windows Settings or supply the printer's PIN")
 }
 
 /// Answers a pairing request with the PIN passed in `param` (a `Vec<u8>`).
@@ -221,8 +221,15 @@ unsafe extern "system" fn respond(
     match request.authenticationMethod {
         BLUETOOTH_AUTHENTICATION_METHOD_LEGACY => {
             let info = unsafe { &mut response.Anonymous.pinInfo };
-            info.pin[..pin.len()].copy_from_slice(pin);
-            info.pinLength = pin.len() as u8;
+            // Panicking here would unwind across the FFI boundary and abort,
+            // so an unusable PIN refuses the pairing instead.
+            match info.pin.get_mut(..pin.len()) {
+                Some(slot) if !pin.is_empty() => {
+                    slot.copy_from_slice(pin);
+                    info.pinLength = pin.len() as u8;
+                }
+                _ => response.negativeResponse = 1,
+            }
         }
         // A printer has no display, so there is no value to compare; accept
         // confirmation ("just works") rather than failing the pairing.

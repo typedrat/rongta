@@ -31,8 +31,11 @@
           commonArgs = {
             src = pkgs.lib.cleanSourceWith {
               src = ./rongta-rs;
-              # The Rust tests embed JSON fixtures with include_str!.
-              filter = path: type: craneLib.filterCargoSources path type || pkgs.lib.hasSuffix ".json" path;
+              # Tests embed JSON fixtures; the template crate embeds fonts and an example.
+              filter =
+                path: type:
+                craneLib.filterCargoSources path type
+                || pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) [ ".json" ".ttf" ".toml" ];
             };
             strictDeps = true;
             cargoExtraArgs = "--workspace";

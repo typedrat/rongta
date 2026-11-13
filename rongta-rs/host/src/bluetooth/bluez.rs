@@ -31,6 +31,7 @@ impl Connection {
         pin: Option<String>,
         timeout: Duration,
     ) -> Result<Self> {
+        super::validate(pin.as_deref(), timeout)?;
         let address = Address(address.0);
         tokio::time::timeout(timeout, Self::connect_inner(address, adapter, pin))
             .await
@@ -83,10 +84,6 @@ impl Connection {
         let device = adapter.device(address)?;
         // With no explicit PIN, BlueZ uses the user's existing default agent.
         let agent = if let Some(pin) = pin {
-            ensure!(
-                (1..=16).contains(&pin.len()) && pin.is_ascii() && !pin.contains('\0'),
-                "PIN must contain 1–16 ASCII characters without NUL"
-            );
             let adapter_name = adapter.name().to_owned();
             Some(
                 session
@@ -113,9 +110,10 @@ impl Connection {
         };
         if !device.is_paired().await? {
             tracing::info!(%address, "Pairing printer through BlueZ");
-            device.pair().await.context(
-                "Pairing failed; pair in bluetoothctl or supply the printer's PIN with --pin",
-            )?;
+            device
+                .pair()
+                .await
+                .context("Pairing failed; pair in bluetoothctl or supply the printer's PIN")?;
         }
         let mut profile = session
             .register_profile(Profile {

@@ -1,18 +1,17 @@
-use crate::bluetooth::Connection;
-use crate::configuration::{Model, Storage};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use bytes::BytesMut;
 use rongta::bluetooth::{DeviceFilter, ScanDevice};
 use rongta::media::Media;
 use rongta::{client, handshake::Handshake, protocol::FrameCodec};
+use rongta_host::bluetooth::Connection;
+use rongta_host::configuration::{Model, Storage};
+use rongta_host::{bluetooth, configuration};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio_util::codec::Decoder;
 use usage::{Args, Cli, Subcommands};
-mod bluetooth;
-mod configuration;
 mod settings_ui;
 
 /// Experimental Rongta R22 printer protocol tools
@@ -39,6 +38,7 @@ enum Commands {
     Info(Info),
     Image(Image),
     Print(Print),
+    Template(TemplateArgs),
 }
 
 /// Configure saved printer/media; without flags, open a terminal menu
@@ -56,6 +56,42 @@ struct SettingsArgs {
     /// Clear the saved media selection
     #[usage(long)]
     clear_media: bool,
+}
+
+/// Fill in a label template, then print it or save a preview
+///
+/// Values are NAME=VALUE pairs for the template's fields. Templates set their
+/// own media, so the saved media selection is not used.
+#[derive(Args)]
+struct TemplateArgs {
+    /// Template file (.rongta.toml)
+    template: PathBuf,
+    /// Field values as NAME=VALUE
+    values: Vec<String>,
+    /// Save a PNG preview instead of printing
+    #[usage(long)]
+    output: Option<PathBuf>,
+    /// Override the selected printer for this job
+    #[usage(long)]
+    address: Option<String>,
+    /// Linux only: BlueZ adapter; defaults to the system's default adapter
+    #[usage(long)]
+    adapter: Option<String>,
+    /// Legacy pairing PIN, if required
+    #[usage(long)]
+    pin: Option<String>,
+    /// Deadline in seconds, separately for connection, handshake, and all copies
+    #[usage(long, default = "120")]
+    timeout: u64,
+    /// Number of copies (1–100)
+    #[usage(long, default = "1")]
+    copies: u16,
+    /// Heat density: 0 light, 8 normal, 15 dark
+    #[usage(long, default = "8")]
+    density: u8,
+    /// Log raw transmitted/received bytes to stderr
+    #[usage(long, short = 'v')]
+    verbose: bool,
 }
 
 /// Show effective printer/media selections without contacting Bluetooth
@@ -455,47 +491,94 @@ async fn main() -> Result<()> {
             let conversion = args.conversion.resolve()?;
             let source = load_image(input)?;
             init_logging(args.verbose);
-            let timeout = Duration::from_secs(args.timeout);
-            let mut nonce = [0; 8];
-            getrandom::fill(&mut nonce).context("Generating handshake nonce")?;
-            let mut connection =
-                Connection::connect(address, args.adapter.as_deref(), args.pin, timeout).await?;
-            let mut session = client::Session::new(&mut connection.stream);
-            let info = session
-                .handshake(
-                    nonce,
-                    client::Options {
-                        timeout,
-                        ..Default::default()
-                    },
-                )
-                .await?;
-            tracing::info!(
-                width = info.model.width_dots,
-                buffer = info.protocol.buffer_length,
-                "Printer handshake complete"
-            );
-            let raster = prepare_image(
-                &source,
-                media.as_ref(),
-                &args.preparation,
-                info.model.width_dots,
-                conversion,
-            )?;
             let options = rongta::printing::PrintOptions {
                 copies: args.copies,
                 density: args.density,
                 speed: args.speed,
                 feed_length: args.feed_length,
-                timeout,
+                timeout: Duration::from_secs(args.timeout),
                 command_delay: Duration::from_millis(args.command_delay_ms),
                 packet_delay: Duration::from_millis(args.packet_delay_ms),
                 ..Default::default()
             };
-            let report = session.print(&info, &raster, options).await
-                .context("Print job failed; any bytes already sent cannot be recalled; check the printer before retrying")?;
+            let (_, report) = rongta_host::job::print(
+                rongta_host::job::Target {
+                    address,
+                    adapter: args.adapter.as_deref(),
+                    pin: args.pin,
+                    timeout: Duration::from_secs(args.timeout),
+                },
+                |info| {
+                    prepare_image(
+                        &source,
+                        media.as_ref(),
+                        &args.preparation,
+                        info.model.width_dots,
+                        conversion,
+                    )
+                },
+                options,
+                |_| {},
+            )
+            .await?;
             serde_json::to_writer_pretty(&mut output, &report)?;
             writeln!(output)?;
+        }
+        Commands::Template(args) => {
+            let template = rongta_template::Template::load(&args.template)?;
+            let values = template_values(&template, &args.values)?;
+            if let Some(path) = &args.output {
+                let raster = template.raster(&values, 384)?;
+                rongta::image_processing::preview(&raster)
+                    .save_with_format(path, image::ImageFormat::Png)
+                    .with_context(|| format!("Cannot save preview {}", path.display()))?;
+                writeln!(output, "Saved preview to {}", path.display())?;
+            } else {
+                // `check` can't see layout problems such as text too long to
+                // fit, so render once before connecting to the printer.
+                template.render(&values)?;
+                let settings = Storage::discover(cli.config)?.effective()?;
+                let address = resolve_address(args.address.as_deref(), settings.printer.address)?;
+                let address = validate_connection(&address, args.timeout, args.pin.as_deref())?;
+                ensure!(
+                    (1..=100).contains(&args.copies),
+                    "--copies must be between 1 and 100"
+                );
+                ensure!(args.density <= 15, "--density must be between 0 and 15");
+                // A one-off different printer has no known loaded media.
+                let saved_media =
+                    if args.address.is_some() && settings.printer.address != Some(address) {
+                        None
+                    } else {
+                        settings.printer.media
+                    };
+                if saved_media.as_ref() != Some(template.media()) {
+                    eprintln!(
+                        "This template is for {} labels; check that they are loaded.",
+                        template.media()
+                    );
+                }
+                init_logging(args.verbose);
+                let (_, report) = rongta_host::job::print(
+                    rongta_host::job::Target {
+                        address,
+                        adapter: args.adapter.as_deref(),
+                        pin: args.pin,
+                        timeout: Duration::from_secs(args.timeout),
+                    },
+                    |info| template.raster(&values, info.model.width_dots),
+                    rongta::printing::PrintOptions {
+                        copies: args.copies,
+                        density: args.density,
+                        timeout: Duration::from_secs(args.timeout),
+                        ..Default::default()
+                    },
+                    |_| {},
+                )
+                .await?;
+                serde_json::to_writer_pretty(&mut output, &report)?;
+                writeln!(output)?;
+            }
         }
         Commands::Decode(args) => {
             ensure!(args.max_body_len >= 5, "--max-body-len must be at least 5");
@@ -578,16 +661,10 @@ fn validate_connection(
     let address = address
         .parse()
         .context("Invalid printer Bluetooth address")?;
-    ensure!(
-        (1..=3600).contains(&timeout),
-        "--timeout must be between 1 and 3600 seconds"
-    );
-    if let Some(pin) = pin {
-        ensure!(
-            (1..=16).contains(&pin.len()) && pin.is_ascii() && !pin.contains('\0'),
-            "--pin must contain 1–16 ASCII characters without NUL"
-        );
-    }
+    bluetooth::validate(pin, Duration::from_secs(timeout)).map_err(|invalid| match invalid {
+        bluetooth::Invalid::Pin => anyhow!("--pin must contain 1–16 ASCII characters without NUL"),
+        bluetooth::Invalid::Timeout => anyhow!("--timeout must be between 1 and 3600 seconds"),
+    })?;
     Ok(address)
 }
 
@@ -612,6 +689,35 @@ fn resolve_address(explicit: Option<&str>, saved: Option<bluetooth::Address>) ->
         .map(str::to_owned)
         .or_else(|| saved.map(|a| a.to_string()))
         .context("No printer selected; run rongta settings or provide a printer address")
+}
+
+fn template_values(
+    template: &rongta_template::Template,
+    pairs: &[String],
+) -> Result<rongta_template::Values> {
+    let mut values = rongta_template::Values::new();
+    for pair in pairs {
+        let (name, value) = pair
+            .split_once('=')
+            .with_context(|| format!("Expected NAME=VALUE, got {pair:?}"))?;
+        ensure!(
+            template.fields.iter().any(|field| field.id == name),
+            "This template has no field {name:?}"
+        );
+        values.insert(name.to_owned(), value.to_owned());
+    }
+    let values = template.normalize(&values);
+    let errors = template.check(&values);
+    ensure!(
+        errors.is_empty(),
+        "{}",
+        errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+    Ok(values)
 }
 
 fn resolve_media(args: &Preparation, saved: Option<Media>) -> Result<Option<Media>> {
