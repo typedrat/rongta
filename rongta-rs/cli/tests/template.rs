@@ -46,11 +46,35 @@ fn invalid_values_fail_before_connecting() {
         let output = rongta()
             .args(["template", &example()])
             .args(args)
-            .args(["--address", "00:00:00:00:00:00"])
+            .args(["--address", "00:00:00:00:00:00", "--timeout", "1"])
             .output()
             .unwrap();
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains(needle), "{needle:?} not in {stderr}");
     }
+}
+
+#[test]
+fn unrenderable_values_fail_before_connecting() {
+    // Without a pattern, `check` accepts any value, so only rendering finds
+    // that this one is too long to print.
+    let source = std::fs::read_to_string(example())
+        .unwrap()
+        .replace("pattern = \"[A-Z0-9]{6,12}\"\n", "");
+    let dir = std::env::temp_dir().join(format!("rongta-unrenderable-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("open.rongta.toml");
+    std::fs::write(&path, source).unwrap();
+    let output = rongta()
+        .arg("template")
+        .arg(&path)
+        .arg(format!("code={}", "W".repeat(40)))
+        .args(["--address", "00:00:00:00:00:00", "--timeout", "1"])
+        .output()
+        .unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("too long to fit"), "{stderr}");
 }

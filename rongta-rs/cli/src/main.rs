@@ -534,6 +534,9 @@ async fn main() -> Result<()> {
                     .with_context(|| format!("Cannot save preview {}", path.display()))?;
                 writeln!(output, "Saved preview to {}", path.display())?;
             } else {
+                // `check` can't see layout problems such as text too long to
+                // fit, so render once before connecting to the printer.
+                template.render(&values)?;
                 let settings = Storage::discover(cli.config)?.effective()?;
                 let address = resolve_address(args.address.as_deref(), settings.printer.address)?;
                 let address = validate_connection(&address, args.timeout, args.pin.as_deref())?;
@@ -542,7 +545,14 @@ async fn main() -> Result<()> {
                     "--copies must be between 1 and 100"
                 );
                 ensure!(args.density <= 15, "--density must be between 0 and 15");
-                if settings.printer.media.as_ref() != Some(template.media()) {
+                // A one-off different printer has no known loaded media.
+                let saved_media =
+                    if args.address.is_some() && settings.printer.address != Some(address) {
+                        None
+                    } else {
+                        settings.printer.media
+                    };
+                if saved_media.as_ref() != Some(template.media()) {
                     eprintln!(
                         "This template is for {} labels; check that they are loaded.",
                         template.media()
