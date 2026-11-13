@@ -10,6 +10,8 @@
   <string>dev.rongta.labels</string>
   <key>CFBundleExecutable</key>
   <string>rongta-gui</string>
+  <key>CFBundleIconFile</key>
+  <string>rongta-labels</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

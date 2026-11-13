@@ -43,7 +43,7 @@ fn main() -> eframe::Result {
         println!("rongta-gui {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Rongta Labels")
             .with_app_id("rongta-labels")
@@ -51,6 +51,9 @@ fn main() -> eframe::Result {
             .with_min_inner_size([MIN_WIDTH, MIN_HEIGHT]),
         ..Default::default()
     };
+    if let Some(icon) = window_icon() {
+        options.viewport = options.viewport.with_icon(icon);
+    }
     let template_path = std::env::args_os().nth(1).map(PathBuf::from);
     eframe::run_native(
         "Rongta Labels",
@@ -71,6 +74,20 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+/// The icon the build embedded, if it had one. A bad image only costs the
+/// window its icon.
+fn window_icon() -> Option<egui::IconData> {
+    #[cfg(rongta_icon)]
+    {
+        eframe::icon_data::from_png_bytes(include_bytes!(concat!(env!("OUT_DIR"), "/icon.png")))
+            .ok()
+    }
+    #[cfg(not(rongta_icon))]
+    {
+        None
+    }
 }
 
 /// The eframe storage key for the template to reopen at start. Only the path

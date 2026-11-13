@@ -10,7 +10,7 @@
     }:
     let
       inherit (pkgs.stdenv.hostPlatform) isLinux;
-      inherit (rongtaBuild) craneLib commonArgs;
+      inherit (rongtaBuild) craneLib commonArgs rongtaIcon;
       arch = pkgs.stdenv.hostPlatform.uname.processor;
       rustTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
 
@@ -164,6 +164,10 @@
         pname = "rongta-gui";
         cargoExtraArgs = "--locked -p rongta-gui";
         CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu";
+        # These args don't inherit commonArgs' icon, and only a Windows target
+        # embeds the .ico as the executable's icon resource.
+        RONGTA_ICON_PNG = "${rongtaIcon}/png/256.png";
+        RONGTA_ICON_ICO = "${rongtaIcon}/rongta-labels.ico";
         # Tests run natively on Linux; a Windows test binary can't run here.
         doCheck = false;
       };
