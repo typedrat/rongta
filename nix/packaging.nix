@@ -254,8 +254,15 @@
             cp ${windowsExe}/bin/rongta-gui.exe "$dir/Rongta Labels.exe"
             mkdir "$dir/licenses"
             cp ${fontLicenses}/* "$dir/licenses/"
-            for dll in $(x86_64-w64-mingw32-objdump -p "$dir/Rongta Labels.exe" \
-                | awk '/DLL Name:/ { print tolower($3) }'); do
+            # A failed or empty listing would pass every DLL check below
+            # vacuously, so both fail the build.
+            headers=$(x86_64-w64-mingw32-objdump -p "$dir/Rongta Labels.exe")
+            imports=$(awk '/DLL Name:/ { print tolower($3) }' <<< "$headers")
+            if [ -z "$imports" ]; then
+              echo "objdump listed no DLL imports for rongta-gui.exe" >&2
+              exit 1
+            fi
+            for dll in $imports; do
               # Win32's Bluetooth device APIs are imported from bthprops.cpl.
               if echo "$dll" | grep -Eqx '(${windowsSystemDlls})\.dll|bthprops\.cpl'; then
                 continue
