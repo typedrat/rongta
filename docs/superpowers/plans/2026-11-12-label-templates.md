@@ -65,7 +65,7 @@ error_correction = "M"       # optional: L | M | Q | H (default M)
 
 [[text]]
 content = "Scan to redeem"   # values inserted as typed
-size_mm = 3.0                # em size, 1–20 mm; shrinks to fit, never below 2 mm
+size_mm = 3.0                # em size, 2–20 mm; shrinks to fit, never below 2 mm
 bold = false                 # optional
 ```
 
@@ -1110,8 +1110,8 @@ impl Template {
         let mut lines = Vec::new();
         for line in raw.lines {
             ensure!(
-                line.size_mm.is_finite() && (1.0..=20.0).contains(&line.size_mm),
-                "Text size_mm must be between 1 and 20, not {}",
+                line.size_mm.is_finite() && (2.0..=20.0).contains(&line.size_mm),
+                "Text size_mm must be between 2 and 20, not {}",
                 line.size_mm
             );
             let content = interpolate::parse(&line.content).context("In [[text]] content")?;
