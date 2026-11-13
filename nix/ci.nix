@@ -220,9 +220,9 @@
                   # The binaries report the crate version, so a release must
                   # not be published under a different tag.
                   run = ''
-                    version=$(sed -n 's/^version = "\(.*\)"$/\1/p' rongta-rs/gui/Cargo.toml | head -n 1)
+                    version=$(python3 -c 'import tomllib; print(tomllib.load(open("rongta-rs/Cargo.toml", "rb"))["workspace"]["package"]["version"])')
                     if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-                      echo "Tag $GITHUB_REF_NAME doesn't match rongta-gui version $version" >&2
+                      echo "Tag $GITHUB_REF_NAME doesn't match workspace version $version" >&2
                       exit 1
                     fi
                   '';
@@ -274,6 +274,57 @@
               root=$(git rev-parse --show-toplevel)
               mkdir -p "$root/.github/workflows"
               install -m 644 ${config.githubActions.workflowsDir}/*.yml "$root/.github/workflows/"
+            '';
+          }
+        );
+      };
+
+      # Releases are squash-merged PRs, so a tag made on a feature branch would
+      # point at a commit master never contains; the bump goes straight onto
+      # master instead.
+      apps.bump = {
+        type = "app";
+        program = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "bump";
+            runtimeInputs = [
+              pkgs.git
+              pkgs.cargo
+              pkgs.gnused
+            ];
+            text = ''
+              if [ $# -ne 1 ] || ! [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+                echo "usage: nix run .#bump -- <major.minor.patch>" >&2
+                exit 1
+              fi
+              version=$1
+              tag="v$version"
+
+              root=$(git rev-parse --show-toplevel)
+              cd "$root"
+              if [ "$(git branch --show-current)" != master ]; then
+                echo "Check out master first." >&2
+                exit 1
+              fi
+              if [ -n "$(git status --porcelain)" ]; then
+                echo "The working tree has uncommitted changes." >&2
+                exit 1
+              fi
+              if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+                echo "Tag $tag already exists." >&2
+                exit 1
+              fi
+
+              sed -i '/^\[workspace\.package\]$/,/^\[/ s/^version = ".*"$/version = "'"$version"'"/' rongta-rs/Cargo.toml
+              if git diff --quiet rongta-rs/Cargo.toml; then
+                echo "rongta-rs/Cargo.toml is already at $version." >&2
+                exit 1
+              fi
+              cargo update --manifest-path rongta-rs/Cargo.toml --workspace --offline
+
+              git commit -m "chore: bump version to $version" rongta-rs/Cargo.toml rongta-rs/Cargo.lock
+              git tag -a "$tag" -m "$tag"
+              echo "Tagged $tag. Publish it with: git push --follow-tags origin master"
             '';
           }
         );

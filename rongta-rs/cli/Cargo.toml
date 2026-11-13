@@ -1,6 +1,6 @@
 [package]
 name = "rongta-cli"
-version = "0.1.1"
+version.workspace = true
 edition = "2024"
 description = "Bluetooth CLI for Rongta R22 printers on Linux, macOS, and Windows"
 publish = false

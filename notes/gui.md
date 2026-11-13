@@ -63,13 +63,16 @@ The Windows zip holds `Rongta Labels.exe`, which needs nothing else installed.
 No console window opens, because the binary is built with `windows_subsystem`.
 
 CI builds all three on every pull request and smoke-tests them on their own
-platforms. To publish a release, set the version in `rongta-rs/gui/Cargo.toml`,
-merge, then push a matching tag:
+platforms. Every crate takes its version from `[workspace.package]` in
+`rongta-rs/Cargo.toml`. To publish a release, run the bump app on an up-to-date
+master, then push:
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+nix run .#bump -- 0.1.2
+git push --follow-tags origin master
 ```
 
+The app sets the version, refreshes `Cargo.lock`, commits, and makes the tag.
 The release workflow refuses a tag that doesn't match the version, runs the
 full CI, and attaches the AppImages and both zips to a GitHub release.
 
