@@ -17,6 +17,15 @@ nix develop
 
 Entering the shell does not launch Android or change Bluetooth services.
 
+The flake is published on [FlakeHub](https://flakehub.com/flake/typedrat/rongta)
+from every push to `master` and every release tag, and CI pushes its builds to
+FlakeHub Cache. To run the CLI or the desktop app without cloning:
+
+```sh
+nix run https://flakehub.com/f/typedrat/rongta/*#rongta -- --help
+nix shell https://flakehub.com/f/typedrat/rongta/*#rongta -c rongta-gui
+```
+
 ## Rust library and CLI
 
 `rongta-rs/` is a Cargo workspace with five packages:
