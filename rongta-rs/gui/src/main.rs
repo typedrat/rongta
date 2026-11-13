@@ -46,6 +46,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Rongta Labels")
+            .with_app_id("rongta-labels")
             .with_inner_size([DEFAULT_WIDTH, DEFAULT_HEIGHT])
             .with_min_inner_size([MIN_WIDTH, MIN_HEIGHT]),
         ..Default::default()

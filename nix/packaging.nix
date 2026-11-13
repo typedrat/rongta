@@ -86,8 +86,6 @@
           '';
 
       appImageRuntime = inputs.nix-appimage.packages.${system}.appimage-runtimes.appimage-type2-runtime;
-      # Label text uses Atkinson Hyperlegible Next and the UI uses Inter; the
-      # OFL requires their licenses to ship with any copy of the fonts.
       fontLicenses = pkgs.runCommand "rongta-font-licenses" { } ''
         mkdir $out
         cp ${../rongta-rs/template/fonts/OFL.txt} $out/AtkinsonHyperlegibleNext-OFL.txt
@@ -101,6 +99,7 @@
         Exec=rongta-gui %f
         Categories=Office;
         Terminal=false
+        StartupWMClass=rongta-labels
       '';
       appImage =
         pkgs.runCommand "Rongta-Labels-${arch}.AppImage"
@@ -117,18 +116,25 @@
             # The runtime mounts the image and executes AppRun from it.
             ln -s usr/bin/rongta-gui AppDir/AppRun
             cp ${desktopEntry} AppDir/rongta-labels.desktop
-            # The SIL OFL requires each bundled font's license to travel with it.
+            # Label text uses Atkinson Hyperlegible Next and the UI uses Inter;
+            # the SIL OFL requires their licenses to ship with any copy.
             mkdir -p AppDir/usr/share/licenses/rongta-labels
             cp ${fontLicenses}/* AppDir/usr/share/licenses/rongta-labels/
             # The runtime's static libfuse runs mount(8) and umount(8) by their
             # util-linux store paths when root has a regular /etc/mtab. A run of
             # slashes the same length keeps the binary's layout and resolves to
-            # the host's /bin/mount instead.
-            perl -0777 -pe 's{/nix/store/[0-9a-z]{32}-[^/\0]*}{"/" x length $&}ge' \
-              ${appImageRuntime} > runtime
+            # the host's /bin/mount instead. Only those paths are rewritten: any
+            # other store reference in the runtime must stay so that
+            # allowedReferences rejects it. The runtime embeds each path twice
+            # (the exec target and its error message), for mount and umount.
+            perl -0777 -pe '
+              s{/nix/store/[0-9a-z]{32}-util-linux-[^/\0]*(?=/bin/u?mount)}{$n++; "/" x length $&}ge;
+              END { die "rewrote $n util-linux paths in the runtime, expected 4\n" unless $n == 4 }
+            ' ${appImageRuntime} > runtime
+            [ "$(stat -c%s runtime)" = "$(stat -c%s ${appImageRuntime})" ]
             # A type 2 AppImage is the runtime followed directly by a squashfs.
             offset=$(stat -c%s runtime)
-            mksquashfs AppDir $out -offset "$offset" -all-root -noappend -no-xattrs -quiet
+            mksquashfs AppDir $out -offset "$offset" -comp zstd -all-root -noappend -no-xattrs -quiet
             dd if=runtime of=$out conv=notrunc status=none
             chmod 755 $out
           '';
