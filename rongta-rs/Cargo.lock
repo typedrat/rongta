@@ -1212,6 +1212,7 @@ dependencies = [
  "image",
  "rongta",
  "rongta-host",
+ "rongta-template",
  "serde_json",
  "tokio",
  "tokio-util",

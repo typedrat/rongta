@@ -38,6 +38,7 @@ enum Commands {
     Info(Info),
     Image(Image),
     Print(Print),
+    Template(TemplateArgs),
 }
 
 /// Configure saved printer/media; without flags, open a terminal menu
@@ -55,6 +56,42 @@ struct SettingsArgs {
     /// Clear the saved media selection
     #[usage(long)]
     clear_media: bool,
+}
+
+/// Fill in a label template, then print it or save a preview
+///
+/// Values are NAME=VALUE pairs for the template's fields. Templates set their
+/// own media, so the saved media selection is not used.
+#[derive(Args)]
+struct TemplateArgs {
+    /// Template file (.rongta.toml)
+    template: PathBuf,
+    /// Field values as NAME=VALUE
+    values: Vec<String>,
+    /// Save a PNG preview instead of printing
+    #[usage(long)]
+    output: Option<PathBuf>,
+    /// Override the selected printer for this job
+    #[usage(long)]
+    address: Option<String>,
+    /// Linux only: BlueZ adapter; defaults to the system's default adapter
+    #[usage(long)]
+    adapter: Option<String>,
+    /// Legacy pairing PIN, if required
+    #[usage(long)]
+    pin: Option<String>,
+    /// Deadline in seconds, separately for connection, handshake, and all copies
+    #[usage(long, default = "120")]
+    timeout: u64,
+    /// Number of copies (1–100)
+    #[usage(long, default = "1")]
+    copies: u16,
+    /// Heat density: 0 light, 8 normal, 15 dark
+    #[usage(long, default = "8")]
+    density: u8,
+    /// Log raw transmitted/received bytes to stderr
+    #[usage(long, short = 'v')]
+    verbose: bool,
 }
 
 /// Show effective printer/media selections without contacting Bluetooth
@@ -487,6 +524,52 @@ async fn main() -> Result<()> {
             serde_json::to_writer_pretty(&mut output, &report)?;
             writeln!(output)?;
         }
+        Commands::Template(args) => {
+            let template = rongta_template::Template::load(&args.template)?;
+            let values = template_values(&template, &args.values)?;
+            if let Some(path) = &args.output {
+                let raster = template.raster(&values, 384)?;
+                rongta::image_processing::preview(&raster)
+                    .save_with_format(path, image::ImageFormat::Png)
+                    .with_context(|| format!("Cannot save preview {}", path.display()))?;
+                writeln!(output, "Saved preview to {}", path.display())?;
+            } else {
+                let settings = Storage::discover(cli.config)?.effective()?;
+                let address = resolve_address(args.address.as_deref(), settings.printer.address)?;
+                let address = validate_connection(&address, args.timeout, args.pin.as_deref())?;
+                ensure!(
+                    (1..=100).contains(&args.copies),
+                    "--copies must be between 1 and 100"
+                );
+                ensure!(args.density <= 15, "--density must be between 0 and 15");
+                if settings.printer.media.as_ref() != Some(&template.media) {
+                    eprintln!(
+                        "This template is for {} labels; check that they are loaded.",
+                        template.media
+                    );
+                }
+                init_logging(args.verbose);
+                let (_, report) = rongta_host::job::print(
+                    rongta_host::job::Target {
+                        address,
+                        adapter: args.adapter.as_deref(),
+                        pin: args.pin,
+                        timeout: Duration::from_secs(args.timeout),
+                    },
+                    |info| template.raster(&values, info.model.width_dots),
+                    rongta::printing::PrintOptions {
+                        copies: args.copies,
+                        density: args.density,
+                        timeout: Duration::from_secs(args.timeout),
+                        ..Default::default()
+                    },
+                    |_| {},
+                )
+                .await?;
+                serde_json::to_writer_pretty(&mut output, &report)?;
+                writeln!(output)?;
+            }
+        }
         Commands::Decode(args) => {
             ensure!(args.max_body_len >= 5, "--max-body-len must be at least 5");
             let input: Box<dyn Read> = match args.input {
@@ -602,6 +685,35 @@ fn resolve_address(explicit: Option<&str>, saved: Option<bluetooth::Address>) ->
         .map(str::to_owned)
         .or_else(|| saved.map(|a| a.to_string()))
         .context("No printer selected; run rongta settings or provide a printer address")
+}
+
+fn template_values(
+    template: &rongta_template::Template,
+    pairs: &[String],
+) -> Result<rongta_template::Values> {
+    let mut values = rongta_template::Values::new();
+    for pair in pairs {
+        let (name, value) = pair
+            .split_once('=')
+            .with_context(|| format!("Expected NAME=VALUE, got {pair:?}"))?;
+        ensure!(
+            template.fields.iter().any(|field| field.id == name),
+            "This template has no field {name:?}"
+        );
+        values.insert(name.to_owned(), value.to_owned());
+    }
+    let values = template.normalize(&values);
+    let errors = template.check(&values);
+    ensure!(
+        errors.is_empty(),
+        "{}",
+        errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+    Ok(values)
 }
 
 fn resolve_media(args: &Preparation, saved: Option<Media>) -> Result<Option<Media>> {

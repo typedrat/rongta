@@ -19,14 +19,18 @@ Entering the shell does not launch Android or change Bluetooth services.
 
 ## Rust library and CLI
 
-`rongta-rs/` is a Cargo workspace with two packages:
+`rongta-rs/` is a Cargo workspace with four packages:
 
 - `rongta`: portable Bluetooth discovery traits and printer detection, framing,
   handshake, media geometry, image processing, and printing over a caller-supplied
   Tokio `AsyncRead + AsyncWrite + Unpin` stream.
+- `rongta-host` (`rongta-rs/host/`): each host's Bluetooth discovery and
+  transport, saved settings, and the connect-and-print job runner, shared by
+  the CLI and other front ends.
+- `rongta-template` (`rongta-rs/template/`): parses fill-in label templates and
+  renders them to a printable raster.
 - `rongta-cli` (`rongta-rs/cli/`): the `rongta` executable for Linux, macOS, and
-  Windows, including each host's Bluetooth discovery/transport, OS randomness,
-  terminal UI, and file/environment settings.
+  Windows, including its terminal UI and command-line interface.
 
 Other applications can depend on the library without pulling in BlueZ, D-Bus,
 or CLI dependencies. No feature flags are needed:
@@ -159,6 +163,63 @@ fixtures using the original library in Android. The
 [framing notes](notes/framing.md) document the layout and CRC;
 [handshake notes](notes/handshake.md) cover the proof, reply layouts, and evidence
 limits.
+
+## Label templates
+
+A template is a TOML file that describes one label with a QR code and a few
+lines of text. Some of its content comes from named fields that you fill in
+each time you print.
+
+```toml
+version = 1
+name = "Access code"
+media = "gap:50x25"          # same syntax as `rongta settings --media`; gap only
+
+[[field]]
+id = "code"                  # [A-Za-z0-9_-]+, unique
+label = "Access code"        # shown next to the input
+hint = "6 to 12 letters or digits"   # optional; shown when the pattern fails
+pattern = "[A-Z0-9]{6,12}"   # optional; must match the whole value
+case = "upper"               # optional: "upper" | "lower" (default: unchanged)
+
+[qr]
+content = "https://example.com/redeem?code={code}"  # values percent-encoded
+error_correction = "M"       # optional: L | M | Q | H (default M)
+
+[[text]]
+content = "Scan to redeem"   # values inserted as typed
+size_mm = 3.0                # em size, 2-20 mm; shrinks to fit, never below 2 mm
+bold = false                 # optional
+```
+
+`{name}` inserts a field; `{{` and `}}` are literal braces. Layout is fixed: the
+QR code is as large as the printable height allows (at least 3 dots per module,
+including the 4-module quiet zone), flush right, and text lines are stacked,
+left-aligned, and centred vertically in the remaining width. For `gap:50x25` the
+printable area is 384 x 184 dots. A URL of about 40 characters at error
+correction M is QR version 3 (29 modules plus an 8-module quiet zone), so
+modules are 4 dots and the code is 148 dots (18.5 mm) square, leaving a 236-dot
+text column.
+
+Fill in the fields as `NAME=VALUE` arguments. With `--output`, the command
+saves a 384-dot PNG preview of the whole label canvas and never connects to a
+printer:
+
+```sh
+rongta template rongta-rs/template/examples/access-code.rongta.toml \
+  code=ab12cd --output label.png
+```
+
+Without `--output`, it prints the label. Values are checked before any
+connection is attempted. Templates set their own media, so the saved media
+selection is not used; if it differs from the template's, the command warns on
+stderr that those labels should be loaded. `--address`, `--adapter`, `--pin`,
+`--timeout`, `--copies`, and `--density` work as they do for `print`.
+
+Labels are drawn at exactly the printable size, one pixel per dot, and converted
+with a plain threshold rather than dithering, which would break up QR modules
+and text edges. Text is set in Atkinson Hyperlegible Next, which is licensed
+under the SIL Open Font License.
 
 ## Send a print job
 
