@@ -65,7 +65,7 @@ impl Template {
             image.dimensions(),
             &self.media,
             head_width,
-            (self.height_mm * 8.0) as u32,
+            (self.size_mm().1 * 8.0) as u32,
         )
     }
 }

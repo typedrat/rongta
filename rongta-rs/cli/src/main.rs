@@ -542,10 +542,10 @@ async fn main() -> Result<()> {
                     "--copies must be between 1 and 100"
                 );
                 ensure!(args.density <= 15, "--density must be between 0 and 15");
-                if settings.printer.media.as_ref() != Some(&template.media) {
+                if settings.printer.media.as_ref() != Some(template.media()) {
                     eprintln!(
                         "This template is for {} labels; check that they are loaded.",
-                        template.media
+                        template.media()
                     );
                 }
                 init_logging(args.verbose);

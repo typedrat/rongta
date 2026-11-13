@@ -14,7 +14,7 @@ fn values(pairs: &[(&str, &str)]) -> Values {
 fn example_template_parses() {
     let template = Template::parse(EXAMPLE).unwrap();
     assert_eq!(template.name, "Access code");
-    assert_eq!(template.media.to_string(), "gap:50x25");
+    assert_eq!(template.media().to_string(), "gap:50x25");
     assert_eq!(template.fields.len(), 1);
     assert_eq!(template.fields[0].id, "code");
     assert_eq!(template.fields[0].case, Case::Upper);
@@ -47,6 +47,7 @@ fn invalid_templates_explain_the_problem() {
         (EXAMPLE.replace("gap:50x25", "circle:40"), "gap"),
         (EXAMPLE.replace("code={code}", "code={coed}"), "coed"),
         (EXAMPLE.replace("[A-Z0-9]{6,12}", "[A-Z"), "pattern"),
+        (EXAMPLE.replace("[A-Z0-9]{6,12}", "a)|(b"), "pattern"),
         (
             EXAMPLE.replace("size_mm = 3.0", "size_mm = 40.0"),
             "size_mm",

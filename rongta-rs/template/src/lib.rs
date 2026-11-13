@@ -14,7 +14,7 @@ mod fonts {
     pub static BOLD: &[u8] = include_bytes!("../fonts/AtkinsonHyperlegibleNext-Bold.ttf");
 }
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use interpolate::Piece;
 use regex::Regex;
 use rongta::media::Media;
@@ -72,13 +72,11 @@ struct TextLine {
 #[derive(Clone, Debug)]
 pub struct Template {
     pub name: String,
-    pub media: Media,
+    media: Media,
     pub fields: Vec<Field>,
     qr: Vec<Piece>,
     error_correction: ErrorCorrection,
     lines: Vec<TextLine>,
-    width_mm: f64,
-    height_mm: f64,
 }
 
 #[derive(Deserialize)]
@@ -137,13 +135,10 @@ impl Template {
             raw.version
         );
         let media: Media = raw.media.parse()?;
-        let Media::Gap {
-            width_mm,
-            height_mm,
-        } = media
-        else {
-            bail!("Templates support gap labels only, not {media}");
-        };
+        ensure!(
+            matches!(media, Media::Gap { .. }),
+            "Templates support gap labels only, not {media}"
+        );
 
         let mut fields: Vec<Field> = Vec::new();
         for field in raw.fields {
@@ -163,7 +158,13 @@ impl Template {
             );
             let pattern = field
                 .pattern
-                .map(|p| Regex::new(&format!("^(?:{p})$")))
+                .map(|p| {
+                    // Compiled bare first: an unbalanced pattern such as
+                    // `a)|(b` would otherwise close the anchoring group early
+                    // and match prefixes and suffixes.
+                    Regex::new(&p)?;
+                    Regex::new(&format!("^(?:{p})$"))
+                })
                 .transpose()
                 .with_context(|| format!("Field {:?} has an invalid pattern", field.id))?;
             fields.push(Field {
@@ -211,8 +212,6 @@ impl Template {
             qr,
             error_correction: raw.qr.error_correction,
             lines,
-            width_mm,
-            height_mm,
         })
     }
 
@@ -261,8 +260,25 @@ impl Template {
             .collect()
     }
 
+    /// The gap labels this template is drawn for.
+    pub fn media(&self) -> &Media {
+        &self.media
+    }
+
+    /// Label size in millimetres; `parse` admits only gap media.
+    fn size_mm(&self) -> (f64, f64) {
+        match self.media {
+            Media::Gap {
+                width_mm,
+                height_mm,
+            } => (width_mm, height_mm),
+            _ => unreachable!("templates are parsed with gap media only"),
+        }
+    }
+
     /// Size in dots of the area `render` draws.
     pub fn printable_size(&self) -> (u32, u32) {
-        rongta::image_processing::printable_size(self.width_mm, self.height_mm)
+        let (width_mm, height_mm) = self.size_mm();
+        rongta::image_processing::printable_size(width_mm, height_mm)
     }
 }
