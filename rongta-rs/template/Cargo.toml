@@ -1,6 +1,6 @@
 [package]
 name = "rongta-template"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Fill-in label templates rendered for Rongta printers"
 publish = false

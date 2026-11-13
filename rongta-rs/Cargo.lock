@@ -3609,7 +3609,7 @@ dependencies = [
 
 [[package]]
 name = "rongta"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3629,7 +3629,7 @@ dependencies = [
 
 [[package]]
 name = "rongta-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3651,7 +3651,7 @@ dependencies = [
 
 [[package]]
 name = "rongta-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "directories",
@@ -3669,7 +3669,7 @@ dependencies = [
 
 [[package]]
 name = "rongta-host"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bluer",
@@ -3692,7 +3692,7 @@ dependencies = [
 
 [[package]]
 name = "rongta-template"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ab_glyph",
  "anyhow",

@@ -1,6 +1,6 @@
 [package]
 name = "rongta"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Portable Rongta R22 printer protocol and image processing"
 publish = false
