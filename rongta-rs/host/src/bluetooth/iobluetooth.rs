@@ -49,7 +49,7 @@ pub struct Connection {
 
 impl Connection {
     /// Pair through IOBluetooth if needed, resolve SPP by SDP, and open RFCOMM.
-    /// Without --pin, a PIN request fails; macOS has no agent to forward it to.
+    /// Without a PIN, a PIN request fails; macOS has no agent to forward it to.
     pub async fn connect(
         address: Address,
         adapter: Option<&str>,
@@ -57,6 +57,7 @@ impl Connection {
         timeout: Duration,
     ) -> Result<Self> {
         no_adapter_selection(adapter)?;
+        super::validate(pin.as_deref(), timeout)?;
         let (stream, ends) = bridge::stream();
         let (ready_tx, ready_rx) = oneshot::channel();
         let deadline = Instant::now() + timeout;
@@ -134,13 +135,15 @@ define_class!(
             let Some(pair) = sender.and_then(|s| s.downcast_ref::<IOBluetoothDevicePair>()) else {
                 return;
             };
+            let mut code = BluetoothPINCode { data: [0; 16] };
+            // Panicking here would unwind across the FFI boundary and abort,
+            // so a missing or unusable PIN stops the pairing instead.
             match &self.ivars().pin {
-                Some(pin) => {
-                    let mut code = BluetoothPINCode { data: [0; 16] };
+                Some(pin) if !pin.is_empty() && pin.len() <= code.data.len() => {
                     code.data[..pin.len()].copy_from_slice(pin);
                     unsafe { pair.replyPINCode_PINCode(pin.len() as _, &mut code) };
                 }
-                None => {
+                _ => {
                     self.ivars().pin_missing.set(true);
                     unsafe { pair.stop() };
                 }
@@ -346,12 +349,12 @@ fn pair(delegate: &Delegate, device: &IOBluetoothDevice, deadline: Instant) -> R
         });
         ensure!(
             !delegate.ivars().pin_missing.get(),
-            "The printer requested a PIN; supply it with --pin"
+            "The printer requested a PIN, but none was supplied"
         );
         ensure!(finished, "Timed out pairing with the printer");
         check(
             delegate.ivars().pairing.get().unwrap_or(0),
-            "Pairing (pair in System Settings or supply the printer's PIN with --pin)",
+            "Pairing (pair in System Settings or supply the printer's PIN)",
         )
     })();
     if result.is_err() {

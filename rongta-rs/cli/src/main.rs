@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use bytes::BytesMut;
 use rongta::bluetooth::{DeviceFilter, ScanDevice};
 use rongta::media::Media;
@@ -651,16 +651,10 @@ fn validate_connection(
     let address = address
         .parse()
         .context("Invalid printer Bluetooth address")?;
-    ensure!(
-        (1..=3600).contains(&timeout),
-        "--timeout must be between 1 and 3600 seconds"
-    );
-    if let Some(pin) = pin {
-        ensure!(
-            (1..=16).contains(&pin.len()) && pin.is_ascii() && !pin.contains('\0'),
-            "--pin must contain 1–16 ASCII characters without NUL"
-        );
-    }
+    bluetooth::validate(pin, Duration::from_secs(timeout)).map_err(|invalid| match invalid {
+        bluetooth::Invalid::Pin => anyhow!("--pin must contain 1–16 ASCII characters without NUL"),
+        bluetooth::Invalid::Timeout => anyhow!("--timeout must be between 1 and 3600 seconds"),
+    })?;
     Ok(address)
 }
 
