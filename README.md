@@ -1,11 +1,13 @@
 # Rongta R22 investigation
 
-The flake uses flake-parts and numtide/devshell to provide an x86_64 Linux
-development shell with Android Emulator,
-an Android 15 Google APIs x86_64 system image with ARM64 translation, ADB,
-Bumble, BlueZ, Wireshark, and the Rust toolchain with D-Bus build dependencies.
-The SDK configuration accepts the Android SDK license and enables unfree
-packages. The first shell load downloads the SDK and system image.
+The flake uses flake-parts and numtide/devshell to provide a Linux development
+shell with Android Emulator, an Android 15 Google APIs x86_64 system image with
+ARM64 translation, ADB, Bumble, BlueZ, Wireshark, and the Rust toolchain with
+D-Bus build dependencies. Google publishes the emulator for x86_64 Linux only,
+so on aarch64 Linux the shell omits the emulator and system image, and `emu`
+exits with an error. On macOS the shell provides only the Rust toolchain. The
+SDK configuration accepts the Android SDK license and enables unfree packages.
+The first shell load downloads the SDK and system image.
 
 ```sh
 direnv allow
@@ -418,13 +420,13 @@ adb -e shell am start -n com.rongta.pn81/.RootActivity
 
 The ABI list must include `arm64-v8a` (the selected image reports
 `x86_64,arm64-v8a`). The original XAPK in the project root contains only
-`armeabi-v7a` libraries and cannot run on this image. Use the ARM64 variant;
-do not mix its splits with those in `analysis/xapk/`. Close other emulators
-before using `adb -e`, or select one explicitly with `adb -s SERIAL`.
-RONGTA 3.1.6's ARM64 variant was verified to install and reach its main screen
-on this Pixel 5 AVD. Bluetooth discovery through the host adapter was also
-confirmed in Android's pairing screen. Printer communication still needs a
-live test when the R22 arrives.
+`armeabi-v7a` libraries and cannot run on this image. Use the ARM64 variant; do
+not mix its splits with those in `analysis/xapk/`. Close other emulators before
+using `adb -e`, or select one explicitly with `adb -s SERIAL`. RONGTA 3.1.6's
+ARM64 variant was verified to install and reach its main screen on this Pixel 5
+AVD. Bluetooth discovery through the host adapter was also confirmed in
+Android's pairing screen. Printer communication still needs a live test when the
+R22 arrives.
 
 Select R22 in the app, connect, and print a tiny label. Stop the bridge before
 opening the `.btsnoop` files in the printed directory in Wireshark. New runs
