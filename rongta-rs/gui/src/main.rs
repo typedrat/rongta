@@ -35,6 +35,14 @@ const MIN_HEIGHT: f32 = 630.0;
 const DEFAULT_HEIGHT: f32 = 690.0;
 
 fn main() -> eframe::Result {
+    // Packaging smoke tests run this on machines without a display.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--version")
+    {
+        println!("rongta-gui {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Rongta Labels")
