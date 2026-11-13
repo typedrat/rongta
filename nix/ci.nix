@@ -51,12 +51,12 @@
         workflows.ci = {
           name = "CI";
           on = {
-            push = {
-              branches = [ "master" ];
-              tags = [ "v*" ];
-            };
+            push.branches = [ "master" ];
             pullRequest = { };
             workflowDispatch = { };
+            # The release workflow calls this one, so a tagged build runs the
+            # same jobs and smoke tests as every pull request.
+            workflowCall = { };
           };
           concurrency = {
             group = "\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}";
@@ -207,16 +207,43 @@
                 (upload "Rongta-Labels-macos-arm64.zip" "Rongta-Labels-macos-arm64.zip")
               ];
             };
+          };
+        };
 
-            release = {
-              name = "Release";
-              if_ = "startsWith(github.ref, 'refs/tags/v')";
-              needs = [
-                "check"
-                "linux"
-                "windows-smoke"
-                "macos"
+        workflows.release = {
+          name = "Release";
+          on.push.tags = [ "v*" ];
+          permissions.contents = "read";
+
+          jobs = {
+            version = {
+              name = "Check the tag matches the version";
+              runsOn = "ubuntu-24.04";
+              steps = [
+                checkout
+                {
+                  name = "Compare";
+                  # The binaries report the crate version, so a release must
+                  # not be published under a different tag.
+                  run = ''
+                    version=$(sed -n 's/^version = "\(.*\)"$/\1/p' rongta-rs/gui/Cargo.toml | head -n 1)
+                    if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+                      echo "Tag $GITHUB_REF_NAME doesn't match rongta-gui version $version" >&2
+                      exit 1
+                    fi
+                  '';
+                }
               ];
+            };
+
+            build = {
+              needs = [ "version" ];
+              uses = "./.github/workflows/ci.yml";
+            };
+
+            publish = {
+              name = "Publish the release";
+              needs = [ "build" ];
               runsOn = "ubuntu-24.04";
               permissions.contents = "write";
               steps = [
@@ -231,7 +258,7 @@
                 {
                   name = "Create release";
                   env.GH_TOKEN = "\${{ github.token }}";
-                  run = ''gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes artifacts/*'';
+                  run = ''gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes artifacts/*'';
                 }
               ];
             };
