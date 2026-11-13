@@ -144,3 +144,62 @@ fn print_card() {
         });
     }
 }
+
+fn example_tab(code: Option<&str>) -> crate::template_tab::TemplateTab {
+    let mut tab = crate::template_tab::TemplateTab::default();
+    tab.open(std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../template/examples/access-code.rongta.toml"
+    )));
+    if let Some(code) = code {
+        tab.set_value("code", code);
+    }
+    tab
+}
+
+#[test]
+fn template_form() {
+    let mut results = SnapshotResults::new();
+    let cases = [
+        ("template_form_empty_state", None, egui::vec2(400.0, 140.0)),
+        ("template_form_blank", Some(""), egui::vec2(400.0, 200.0)),
+        (
+            "template_form_invalid",
+            Some("ab1"),
+            egui::vec2(400.0, 200.0),
+        ),
+        (
+            "template_form_valid",
+            Some("ab12cd"),
+            egui::vec2(400.0, 200.0),
+        ),
+    ];
+    for (name, code, size) in cases {
+        let mut tab = match code {
+            None => crate::template_tab::TemplateTab::default(),
+            Some("") => example_tab(None),
+            Some(code) => example_tab(Some(code)),
+        };
+        snapshot(&mut results, name, size, |ui| tab.form_ui(ui));
+    }
+}
+
+/// Each theme gets its own tab: a preview's texture belongs to the context
+/// that uploaded it, so sharing one across harnesses would draw it blank.
+#[test]
+fn template_preview() {
+    let mut results = SnapshotResults::new();
+    for (name, code, size) in [
+        ("template_preview", Some("AB12CD"), egui::vec2(460.0, 340.0)),
+        ("template_preview_empty", None, egui::vec2(460.0, 110.0)),
+    ] {
+        for (theme, suffix) in THEMES {
+            let mut tab = example_tab(code);
+            let mut harness = harness(size, theme, |u| {
+                egui::CentralPanel::default().show(u, |ui| tab.preview_ui(ui));
+            });
+            harness.run_steps(4);
+            results.add(harness.try_snapshot(format!("{name}_{suffix}")));
+        }
+    }
+}

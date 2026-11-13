@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod errors;
+mod preview;
 mod printer;
+mod template_tab;
 mod theme;
 mod worker;
 
@@ -9,6 +11,7 @@ use eframe::egui;
 use errors::Problem;
 use printer::Printer;
 use rongta_host::job::Stage;
+use std::path::PathBuf;
 use worker::{Event, Job, PrintRequest, Request, Worker};
 
 fn main() -> eframe::Result {
@@ -19,12 +22,13 @@ fn main() -> eframe::Result {
             .with_min_inner_size([700.0, 540.0]),
         ..Default::default()
     };
+    let template_path = std::env::args_os().nth(1).map(std::path::PathBuf::from);
     eframe::run_native(
         "Rongta Labels",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             theme::install(&cc.egui_ctx);
-            Ok(Box::new(App::new(cc.egui_ctx.clone())))
+            Ok(Box::new(App::new(cc.egui_ctx.clone(), template_path)))
         }),
     )
 }
@@ -50,10 +54,15 @@ struct App {
     copies: u16,
     density: u8,
     status: Status,
+    template: template_tab::TemplateTab,
 }
 
 impl App {
-    fn new(ctx: egui::Context) -> Self {
+    fn new(ctx: egui::Context, template_path: Option<PathBuf>) -> Self {
+        let mut template = template_tab::TemplateTab::default();
+        if let Some(path) = template_path {
+            template.open(path);
+        }
         Self {
             tab: Tab::default(),
             worker: Worker::spawn(ctx),
@@ -61,6 +70,19 @@ impl App {
             copies: 1,
             density: 8,
             status: Status::Ready,
+            template,
+        }
+    }
+
+    /// A dropped .toml opens as a template; anything else is tried as an image.
+    fn handle_drops(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input(|input| input.raw.dropped_files.clone());
+        for file in dropped {
+            let path = file.path().to_path_buf();
+            if path.extension().is_some_and(|ext| ext == "toml") {
+                self.template.open(path);
+                self.tab = Tab::Template;
+            }
         }
     }
 
@@ -170,7 +192,18 @@ impl eframe::App for App {
                 ui.selectable_value(&mut self.tab, Tab::Image, "Image");
             });
             ui.add_space(8.0);
-            self.print_card(ui, None);
+            let ctx = ui.ctx().clone();
+            self.handle_drops(&ctx);
+            ui.columns(2, |columns| match self.tab {
+                Tab::Template => {
+                    self.template.form_ui(&mut columns[0]);
+                    columns[0].add_space(8.0);
+                    let job = self.template.job();
+                    self.print_card(&mut columns[0], job);
+                    self.template.preview_ui(&mut columns[1]);
+                }
+                Tab::Image => self.print_card(&mut columns[0], None),
+            });
         });
     }
 }

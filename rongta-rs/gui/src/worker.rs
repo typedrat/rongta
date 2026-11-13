@@ -27,14 +27,14 @@ use std::{
 const SCAN_TIME: Duration = Duration::from_secs(8);
 const PRINT_TIMEOUT: Duration = Duration::from_secs(60);
 
-// Constructed by the template and image tabs, which aren't wired in yet.
-#[allow(dead_code)]
 #[derive(Clone)]
 pub enum Job {
     Template {
         template: Template,
         values: Values,
     },
+    // Constructed by the image tab, which isn't wired in yet.
+    #[allow(dead_code)]
     Image {
         source: Arc<RgbaImage>,
         media: Media,
