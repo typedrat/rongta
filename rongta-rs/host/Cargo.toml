@@ -1,0 +1,48 @@
+[package]
+name = "rongta-host"
+version = "0.1.0"
+edition = "2024"
+description = "Host Bluetooth transports and saved settings for Rongta printers"
+publish = false
+
+[dependencies]
+rongta = { path = ".." }
+anyhow = "1"
+confique = { version = "0.4", features = ["toml"] }
+directories = "6"
+futures-util = "0.3"
+getrandom = "0.4"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "time", "sync"] }
+toml = "0.9"
+tracing = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDate", "CFRunLoop"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSObject", "NSString"] }
+objc2-io-bluetooth = { version = "0.3", default-features = false, features = [
+    "std",
+    "objc2",
+    "objc2-foundation",
+    "Bluetooth",
+    "IOBluetoothDevice",
+    "IOBluetoothDeviceInquiry",
+    "IOBluetoothDevicePair",
+    "IOBluetoothObject",
+    "IOBluetoothRFCOMMChannel",
+    "IOBluetoothSDPServiceRecord",
+    "IOBluetoothSDPUUID",
+    "IOBluetoothUserLib",
+] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Devices_Bluetooth",
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+] }

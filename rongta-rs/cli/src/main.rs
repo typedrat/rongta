@@ -1,18 +1,17 @@
-use crate::bluetooth::Connection;
-use crate::configuration::{Model, Storage};
 use anyhow::{Context, Result, ensure};
 use bytes::BytesMut;
 use rongta::bluetooth::{DeviceFilter, ScanDevice};
 use rongta::media::Media;
 use rongta::{client, handshake::Handshake, protocol::FrameCodec};
+use rongta_host::bluetooth::Connection;
+use rongta_host::configuration::{Model, Storage};
+use rongta_host::{bluetooth, configuration};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio_util::codec::Decoder;
 use usage::{Args, Cli, Subcommands};
-mod bluetooth;
-mod configuration;
 mod settings_ui;
 
 /// Experimental Rongta R22 printer protocol tools

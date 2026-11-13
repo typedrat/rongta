@@ -1110,29 +1110,42 @@ name = "rongta-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bluer",
  "bytes",
- "confique",
  "dialoguer",
- "directories",
- "futures-util",
  "getrandom 0.4.3",
  "hex",
  "image",
- "objc2",
- "objc2-core-foundation",
- "objc2-foundation",
- "objc2-io-bluetooth",
  "rongta",
- "serde",
+ "rongta-host",
  "serde_json",
- "tempfile",
  "tokio",
  "tokio-util",
  "toml",
  "tracing",
  "tracing-subscriber",
  "usage-rs",
+]
+
+[[package]]
+name = "rongta-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bluer",
+ "confique",
+ "directories",
+ "futures-util",
+ "getrandom 0.4.3",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-io-bluetooth",
+ "rongta",
+ "serde",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
  "windows",
 ]
 

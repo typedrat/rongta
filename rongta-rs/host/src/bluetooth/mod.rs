@@ -23,7 +23,7 @@ mod winsock;
 pub use winsock::{Connection, SystemDiscovery};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-compile_error!("rongta-cli supports Bluetooth on Linux, macOS, and Windows only");
+compile_error!("rongta-host supports Bluetooth on Linux, macOS, and Windows only");
 
 /// Rejects `--adapter` on hosts whose Bluetooth API has no adapter selection.
 #[cfg(any(target_os = "macos", windows))]
