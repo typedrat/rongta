@@ -17,8 +17,8 @@ jobs:
         with:
           gc-max-store-size-linux: 8G
           gc-max-store-size-macos: 8G
-          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          primary-key: nix-check-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
+          restore-prefixes-first-match: nix-check-${{ runner.os }}-${{ runner.arch }}-
       - name: Build and test rongta
         run: nix build -L .#rongta
       - name: nix flake check
@@ -36,14 +36,15 @@ jobs:
         with:
           gc-max-store-size-linux: 8G
           gc-max-store-size-macos: 8G
-          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          primary-key: nix-linux-${{ matrix.arch }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
+          restore-prefixes-first-match: nix-linux-${{ matrix.arch }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Build
         run: |
           nix build -L .#rongta-gui-appimage
           cp -L result "Rongta-Labels-${{ matrix.arch }}.AppImage"
       - name: Smoke test on the runner
         run: |
+          sudo apt-get -qq update >/dev/null
           sudo apt-get -qq install -y fuse3 libdbus-1-3 >/dev/null
           "./Rongta-Labels-${{ matrix.arch }}.AppImage" --version
       - name: Smoke test on other distros
@@ -53,9 +54,10 @@ jobs:
             docker run --rm -e APPIMAGE_EXTRACT_AND_RUN=1 \
               -v "$PWD/Rongta-Labels-${{ matrix.arch }}.AppImage:/app.AppImage:ro" \
               "docker.io/library/$image" sh -c '
+                set -e
                 grep -qs "^10" /etc/debian_version && echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
                 if command -v apt-get >/dev/null; then
-                  apt-get -qq update >/dev/null && apt-get -qq install -y libdbus-1-3 >/dev/null
+                  apt-get -qq -o Acquire::Check-Valid-Until=false update >/dev/null && apt-get -qq install -y libdbus-1-3 >/dev/null
                 else
                   dnf -q -y install dbus-libs >/dev/null
                 fi
@@ -89,8 +91,8 @@ jobs:
         with:
           gc-max-store-size-linux: 8G
           gc-max-store-size-macos: 8G
-          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          primary-key: nix-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
+          restore-prefixes-first-match: nix-macos-${{ runner.os }}-${{ runner.arch }}-
       - name: Build
         run: |
           nix build -L .#rongta-gui-macos
@@ -144,8 +146,8 @@ jobs:
         with:
           gc-max-store-size-linux: 8G
           gc-max-store-size-macos: 8G
-          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          primary-key: nix-windows-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}
+          restore-prefixes-first-match: nix-windows-build-${{ runner.os }}-${{ runner.arch }}-
       - name: Build
         run: |
           nix build -L .#rongta-gui-windows

@@ -17,22 +17,24 @@
         name = "Install Nix";
         uses = "DeterminateSystems/determinate-nix-action@v3";
       };
-      # Keyed on everything that changes the build; restores the closest
-      # earlier store when the exact key misses.
-      cache = {
+      # Keyed on the job and the Nix inputs (flake files and Cargo.lock), not on
+      # Rust sources. A stale hit is fine because the cache only speeds up the
+      # build; Nix still rebuilds whatever changed. The label keeps jobs from
+      # fighting over one key, since only the first job to finish saves it.
+      cache = label: {
         name = "Nix store cache";
         uses = "nix-community/cache-nix-action@v6";
         with_ = {
-          primary-key = "nix-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}";
-          restore-prefixes-first-match = "nix-\${{ runner.os }}-\${{ runner.arch }}-";
+          primary-key = "nix-${label}-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}";
+          restore-prefixes-first-match = "nix-${label}-\${{ runner.os }}-\${{ runner.arch }}-";
           gc-max-store-size-linux = "8G";
           gc-max-store-size-macos = "8G";
         };
       };
-      setup = [
+      setup = label: [
         checkout
         installNix
-        cache
+        (cache label)
       ];
       upload = name: path: {
         name = "Upload ${name}";
@@ -66,7 +68,7 @@
             check = {
               name = "Tests and checks";
               runsOn = "ubuntu-24.04";
-              steps = setup ++ [
+              steps = setup "check" ++ [
                 {
                   # flake check only evaluates packages, so building rongta is
                   # what runs the unit and GUI snapshot tests (doCheck, on
@@ -97,7 +99,7 @@
                   }
                 ];
               };
-              steps = setup ++ [
+              steps = setup "linux-\${{ matrix.arch }}" ++ [
                 {
                   name = "Build";
                   run = ''
@@ -109,6 +111,7 @@
                   # Exercises the real FUSE mount path, as a double-click would.
                   name = "Smoke test on the runner";
                   run = ''
+                    sudo apt-get -qq update >/dev/null
                     sudo apt-get -qq install -y fuse3 libdbus-1-3 >/dev/null
                     "./Rongta-Labels-''${{ matrix.arch }}.AppImage" --version
                   '';
@@ -123,9 +126,10 @@
                       docker run --rm -e APPIMAGE_EXTRACT_AND_RUN=1 \
                         -v "$PWD/Rongta-Labels-''${{ matrix.arch }}.AppImage:/app.AppImage:ro" \
                         "docker.io/library/$image" sh -c '
+                          set -e
                           grep -qs "^10" /etc/debian_version && echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
                           if command -v apt-get >/dev/null; then
-                            apt-get -qq update >/dev/null && apt-get -qq install -y libdbus-1-3 >/dev/null
+                            apt-get -qq -o Acquire::Check-Valid-Until=false update >/dev/null && apt-get -qq install -y libdbus-1-3 >/dev/null
                           else
                             dnf -q -y install dbus-libs >/dev/null
                           fi
@@ -141,7 +145,7 @@
             windows-build = {
               name = "Windows zip (cross-compiled)";
               runsOn = "ubuntu-24.04";
-              steps = setup ++ [
+              steps = setup "windows-build" ++ [
                 {
                   name = "Build";
                   run = ''
@@ -180,7 +184,7 @@
             macos = {
               name = "macOS app (arm64)";
               runsOn = "macos-latest";
-              steps = setup ++ [
+              steps = setup "macos" ++ [
                 {
                   name = "Build";
                   run = ''
@@ -240,6 +244,7 @@
         program = lib.getExe (
           pkgs.writeShellApplication {
             name = "write-workflows";
+            runtimeInputs = [ pkgs.git ];
             text = ''
               root=$(git rev-parse --show-toplevel)
               mkdir -p "$root/.github/workflows"
