@@ -19,9 +19,9 @@ use worker::{Event, Job, PrintRequest, Request, Worker};
 const PANEL_MARGIN: f32 = 8.0;
 /// The theme's horizontal item spacing, which also separates the columns.
 const COLUMN_GAP: f32 = 10.0;
-/// The form's widest row that can't wrap, the print card's Copies and
-/// Darkness controls, needs this much.
-const FORM_MIN_WIDTH: f32 = 400.0;
+/// The form's widest row that can't wrap, the print card's Darkness steps,
+/// needs this much.
+const FORM_MIN_WIDTH: f32 = 460.0;
 /// The narrowest window that still shows the whole print head at one
 /// physical pixel per dot on a display at 1× scale.
 const MIN_WIDTH: f32 =
@@ -30,9 +30,9 @@ const MIN_WIDTH: f32 =
 const DEFAULT_WIDTH: f32 = MIN_WIDTH + 100.0;
 /// Fits the image tab, the tallest, once its label size is known; anything
 /// more scrolls.
-const MIN_HEIGHT: f32 = 580.0;
+const MIN_HEIGHT: f32 = 630.0;
 /// Also fits the image tab's two-line label-size hint.
-const DEFAULT_HEIGHT: f32 = 640.0;
+const DEFAULT_HEIGHT: f32 = 690.0;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -78,6 +78,48 @@ impl Status {
     fn edited(&mut self) {
         if matches!(self, Status::Printed) {
             *self = Status::Ready;
+        }
+    }
+}
+
+/// How dark to print, in the steps the person chooses between.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Darkness {
+    Lightest,
+    Light,
+    #[default]
+    Normal,
+    Dark,
+    Darkest,
+}
+
+impl Darkness {
+    const ALL: [Darkness; 5] = [
+        Darkness::Lightest,
+        Darkness::Light,
+        Darkness::Normal,
+        Darkness::Dark,
+        Darkness::Darkest,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Darkness::Lightest => "Lightest",
+            Darkness::Light => "Light",
+            Darkness::Normal => "Normal",
+            Darkness::Dark => "Dark",
+            Darkness::Darkest => "Darkest",
+        }
+    }
+
+    /// The printer's density setting, which runs from 0 to 15.
+    fn density(self) -> u8 {
+        match self {
+            Darkness::Lightest => 0,
+            Darkness::Light => 4,
+            Darkness::Normal => 8,
+            Darkness::Dark => 12,
+            Darkness::Darkest => 15,
         }
     }
 }
@@ -144,7 +186,7 @@ struct App {
     worker: Worker,
     printer: Printer,
     copies: u16,
-    density: u8,
+    darkness: Darkness,
     status: Status,
     closing: Closing,
     template: template_tab::TemplateTab,
@@ -158,7 +200,7 @@ impl App {
             worker,
             printer,
             copies: 1,
-            density: 8,
+            darkness: Darkness::default(),
             status: Status::Ready,
             closing: Closing::default(),
             template: Default::default(),
@@ -201,13 +243,13 @@ impl App {
         let ready = hint.is_none() && !self.busy();
         let print = theme::card(ui, |ui| {
             ui.set_width(ui.available_width());
-            print_controls(ui, &mut self.copies, &mut self.density, ready, hint)
+            print_controls(ui, &mut self.copies, &mut self.darkness, ready, hint)
         });
         if print && let (Some(address), Ok(job)) = (self.printer.selected, job) {
             let request = Request::Print(PrintRequest {
                 address,
                 copies: self.copies,
-                density: self.density,
+                density: self.darkness.density(),
                 job,
             });
             self.status = match self.worker.send(request) {
@@ -403,17 +445,23 @@ fn print_hint(
 fn print_controls(
     ui: &mut egui::Ui,
     copies: &mut u16,
-    density: &mut u8,
+    darkness: &mut Darkness,
     ready: bool,
     hint: Option<&str>,
 ) -> bool {
-    ui.horizontal(|ui| {
-        let label = ui.label("Copies");
-        ui.add(egui::DragValue::new(copies).range(1..=100))
-            .labelled_by(label.id);
-        ui.add_space(16.0);
-        ui.add(egui::Slider::new(density, 0..=15).text("Darkness"));
-    });
+    egui::Grid::new("print settings")
+        .num_columns(2)
+        .spacing(egui::vec2(10.0, 10.0))
+        .show(ui, |ui| {
+            let label = ui.label("Copies");
+            ui.add(egui::DragValue::new(copies).range(1..=100))
+                .labelled_by(label.id);
+            ui.end_row();
+            let label = ui.label("Darkness");
+            let steps = Darkness::ALL.map(|step| (step, step.label()));
+            theme::segmented(ui, darkness, &steps, label.id);
+            ui.end_row();
+        });
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         let clicked = theme::primary_button(ui, "Print", ready).clicked();
@@ -468,6 +516,25 @@ mod tests {
         });
         status.edited();
         assert!(matches!(status, Status::Failed(_)));
+    }
+
+    #[test]
+    fn darkness_steps_span_the_printer_density_range() {
+        let steps: Vec<_> = Darkness::ALL
+            .iter()
+            .map(|step| (step.label(), step.density()))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                ("Lightest", 0),
+                ("Light", 4),
+                ("Normal", 8),
+                ("Dark", 12),
+                ("Darkest", 15)
+            ]
+        );
+        assert_eq!(Darkness::default().density(), 8);
     }
 
     #[test]

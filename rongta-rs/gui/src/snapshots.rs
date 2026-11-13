@@ -14,9 +14,9 @@ use rongta::bluetooth::ScanDevice;
 use rongta_host::{bluetooth::Address, job::Stage};
 
 use crate::{
-    App, Closing, DEFAULT_HEIGHT, DEFAULT_WIDTH, MIN_HEIGHT, MIN_WIDTH, Status, errors::Problem,
-    image_tab::ImageTab, print_controls, printer::Printer, status_ui, template_tab::TemplateTab,
-    theme, worker::Worker,
+    App, Closing, DEFAULT_HEIGHT, DEFAULT_WIDTH, Darkness, MIN_HEIGHT, MIN_WIDTH, Status,
+    errors::Problem, image_tab::ImageTab, print_controls, printer::Printer, status_ui,
+    template_tab::TemplateTab, theme, worker::Worker,
 };
 
 /// A wgpu setup that only accepts a CPU Vulkan adapter, which in practice is
@@ -231,15 +231,31 @@ fn print_card() {
         snapshot(
             &mut results,
             name,
-            egui::vec2(480.0, 160.0),
-            || (2, 8),
-            |(copies, density), ui| {
+            egui::vec2(500.0, 200.0),
+            || (2, Darkness::default()),
+            |(copies, darkness), ui| {
                 theme::card(ui, |ui| {
-                    print_controls(ui, copies, density, ready, hint);
+                    print_controls(ui, copies, darkness, ready, hint);
                 });
             },
         );
     }
+}
+
+#[test]
+fn darkness_is_one_named_choice() {
+    let mut darkness = Darkness::default();
+    let mut harness = harness(egui::vec2(480.0, 200.0), egui::Theme::Light, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
+            print_controls(ui, &mut 1, &mut darkness, true, None);
+        });
+    });
+    harness.run();
+    harness.get_by_role_and_label(egui::accesskit::Role::RadioGroup, "Darkness");
+    harness.get_by_label("Darkest").click();
+    harness.run();
+    drop(harness);
+    assert_eq!(darkness, Darkness::Darkest);
 }
 
 fn example_tab(code: Option<&str>) -> TemplateTab {

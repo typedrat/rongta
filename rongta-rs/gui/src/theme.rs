@@ -207,6 +207,56 @@ pub fn primary_button(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Res
     .inner
 }
 
+/// One choice among a few, as a joined row of segments. The chosen one is
+/// filled with the accent so the row reads as a single setting rather than
+/// as separate buttons. `label` names the group for screen readers.
+pub fn segmented<T: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    current: &mut T,
+    options: &[(T, &str)],
+    label: egui::Id,
+) -> egui::Response {
+    let p = palette(ui);
+    egui::Frame::new()
+        .fill(p.raised)
+        .stroke(Stroke::new(1.0, p.border))
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(Margin::same(3))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+                    node.set_role(egui::accesskit::Role::RadioGroup);
+                    node.push_labelled_by(label.accesskit_id());
+                });
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.spacing_mut().button_padding.x = 10.0;
+                ui.spacing_mut().interact_size.y = 28.0;
+                for &(value, text) in options {
+                    let selected = *current == value;
+                    let text = egui::RichText::new(text).color(if selected {
+                        p.on_accent
+                    } else {
+                        p.text
+                    });
+                    let button = egui::Button::new(text)
+                        .selected(selected)
+                        .corner_radius(CornerRadius::same(6));
+                    // Unselected segments show a frame only on hover.
+                    let button = if selected {
+                        button.fill(p.accent).stroke(Stroke::NONE)
+                    } else {
+                        button.frame_when_inactive(false)
+                    };
+                    if ui.add(button).clicked() {
+                        *current = value;
+                    }
+                }
+            })
+            .response
+        })
+        .inner
+}
+
 /// WCAG 2 contrast ratio between two opaque colours.
 #[cfg(test)]
 pub fn contrast(a: Color32, b: Color32) -> f32 {
