@@ -16,9 +16,20 @@ impl Sandbox {
         for (key, _) in std::env::vars().filter(|(key, _)| key.starts_with("RONGTA_")) {
             cmd.env_remove(key);
         }
+        // macOS ignores the XDG variables and keeps everything under
+        // ~/Library, so the home directory has to move into the sandbox too.
         cmd.env("XDG_STATE_HOME", self.0.join("state"))
-            .env("XDG_CONFIG_HOME", self.0.join("config"));
+            .env("XDG_CONFIG_HOME", self.0.join("config"))
+            .env("HOME", self.0.join("home"));
         cmd
+    }
+    fn state_path(&self) -> PathBuf {
+        if cfg!(target_os = "macos") {
+            self.0
+                .join("home/Library/Application Support/rongta/state.toml")
+        } else {
+            self.0.join("state/rongta/state.toml")
+        }
     }
 }
 impl Drop for Sandbox {
@@ -179,10 +190,8 @@ fn settings_persist_printer_and_media_in_platform_state_directory() {
             .output()
             .unwrap(),
     );
-    let state: toml::Value = toml::from_str(
-        &std::fs::read_to_string(sandbox.0.join("state/rongta/state.toml")).unwrap(),
-    )
-    .unwrap();
+    let state: toml::Value =
+        toml::from_str(&std::fs::read_to_string(sandbox.state_path()).unwrap()).unwrap();
     assert_eq!(state["version"].as_integer(), Some(2));
     assert_eq!(
         state["printer"]["address"].as_str(),
@@ -284,7 +293,7 @@ fn changing_printer_clears_media_and_invalid_updates_leave_state_intact() {
             .output()
             .unwrap(),
     );
-    let path = sandbox.0.join("state/rongta/state.toml");
+    let path = sandbox.state_path();
     let before = std::fs::read(&path).unwrap();
     let output = sandbox
         .command()
@@ -415,7 +424,7 @@ fn corrupt_state_and_invalid_environment_fail_without_overwriting_state() {
             .output()
             .unwrap(),
     );
-    let path = sandbox.0.join("state/rongta/state.toml");
+    let path = sandbox.state_path();
     let before = std::fs::read(&path).unwrap();
     for (key, value) in [
         ("RONGTA_MEDIA", "gap:NaNx30"),
@@ -487,7 +496,7 @@ fn address_overrides_do_not_inherit_saved_media_and_saved_address_reaches_print(
 #[test]
 fn legacy_state_loads_and_is_rewritten_as_nested_structured_state_on_save() {
     let sandbox = Sandbox::new("migration");
-    let path = sandbox.0.join("state/rongta/state.toml");
+    let path = sandbox.state_path();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let legacy = "version = 1\n[selection]\naddress = 'AA:BB:CC:DD:EE:FF'\nmodel = 'r22'\nmedia = 'gap:50x30'\n";
     std::fs::write(&path, legacy).unwrap();
@@ -575,10 +584,8 @@ fn every_media_variant_round_trips_as_an_object_in_state_and_json() {
                 .output()
                 .unwrap(),
         );
-        let state: toml::Value = toml::from_str(
-            &std::fs::read_to_string(sandbox.0.join("state/rongta/state.toml")).unwrap(),
-        )
-        .unwrap();
+        let state: toml::Value =
+            toml::from_str(&std::fs::read_to_string(sandbox.state_path()).unwrap()).unwrap();
         assert_eq!(
             serde_json::to_value(&state["printer"]["media"]).unwrap(),
             expected
