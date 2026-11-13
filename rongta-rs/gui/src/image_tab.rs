@@ -16,7 +16,10 @@ use rongta::{
 use std::{
     io::{BufRead, Seek},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
 };
 
 /// (label, dither name); `None` is the SDK's sharp black-and-white threshold.
@@ -39,9 +42,64 @@ const MAX_DECODE_SIDE: u32 = 16_384;
 
 const UNREADABLE: &str = "Couldn't open this picture.";
 const TOO_LARGE: &str = "This picture is too large to open.";
+const OPENING: &str = "Opening the picture…";
+
+/// A decoded picture, or why it couldn't be, tagged with the open it answers.
+struct Loaded {
+    generation: u64,
+    path: PathBuf,
+    result: Result<RgbaImage, Problem>,
+}
+
+/// Which open is current. Every open bumps the generation, so a slow decode
+/// that finishes after a newer open is recognised as stale and dropped.
+#[derive(Default)]
+struct Opening {
+    generation: u64,
+    /// The file being opened, until its result arrives.
+    pending: Option<PathBuf>,
+}
+
+impl Opening {
+    /// Starts an open that supersedes any still running, returning its
+    /// generation.
+    fn begin(&mut self, path: PathBuf) -> u64 {
+        self.generation += 1;
+        self.pending = Some(path);
+        self.generation
+    }
+
+    /// The latest open's result, or `None` if `loaded` was superseded.
+    fn finish(&mut self, loaded: Loaded) -> Option<(PathBuf, Result<RgbaImage, Problem>)> {
+        if loaded.generation != self.generation || self.pending.is_none() {
+            return None;
+        }
+        self.pending = None;
+        Some((loaded.path, loaded.result))
+    }
+}
+
+/// Decodes run on their own short-lived threads and report back here.
+struct Loader {
+    opening: Opening,
+    sender: Sender<Loaded>,
+    receiver: Receiver<Loaded>,
+}
+
+impl Default for Loader {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        Self {
+            opening: Opening::default(),
+            sender,
+            receiver,
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct ImageTab {
+    loader: Loader,
     path: Option<PathBuf>,
     source: Option<Arc<RgbaImage>>,
     /// Empty means the printer's saved media.
@@ -93,16 +151,98 @@ fn shrink(image: DynamicImage) -> DynamicImage {
     }
 }
 
+/// `load`, with a panicking decoder reported as an unreadable picture rather
+/// than leaving the open pending forever.
+fn load_guarded(path: &Path) -> Result<RgbaImage, Problem> {
+    std::panic::catch_unwind(|| load(path)).unwrap_or_else(|_| {
+        Err(Problem::new(
+            UNREADABLE,
+            &anyhow::anyhow!("The decoder crashed reading {}", path.display()),
+        ))
+    })
+}
+
 impl ImageTab {
-    pub fn open(&mut self, path: PathBuf) {
-        match load(&path) {
-            Ok(image) => {
+    /// Starts decoding `path` on a background thread; `poll` picks up the
+    /// result. The current picture stays until then.
+    pub fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
+        let generation = self.begin(path.clone());
+        let sender = self.loader.sender.clone();
+        let ctx = ctx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("open-picture".into())
+            .spawn(move || {
+                let result = load_guarded(&path);
+                // The tab is gone if the receiver is, and then so is the
+                // window to repaint.
+                if sender
+                    .send(Loaded {
+                        generation,
+                        path,
+                        result,
+                    })
+                    .is_ok()
+                {
+                    ctx.request_repaint();
+                }
+            });
+        if let Err(error) = spawned {
+            let path = self.loader.opening.pending.clone().unwrap_or_default();
+            self.finish(Loaded {
+                generation,
+                path,
+                result: Err(Problem::new(UNREADABLE, &error.into())),
+            });
+        }
+    }
+
+    /// Decodes on the calling thread, for tests that need the picture now.
+    #[cfg(test)]
+    pub fn open_now(&mut self, path: PathBuf) {
+        let generation = self.begin(path.clone());
+        let result = load_guarded(&path);
+        self.finish(Loaded {
+            generation,
+            path,
+            result,
+        });
+    }
+
+    /// Shows `path` as opening without decoding it.
+    #[cfg(all(test, target_os = "linux"))]
+    pub fn start_opening(&mut self, path: PathBuf) {
+        self.begin(path);
+    }
+
+    fn begin(&mut self, path: PathBuf) -> u64 {
+        self.problem = None;
+        self.loader.opening.begin(path)
+    }
+
+    /// Applies any finished open. Returns whether the picture changed.
+    pub fn poll(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok(loaded) = self.loader.receiver.try_recv() {
+            changed |= self.finish(loaded);
+        }
+        changed
+    }
+
+    /// Returns whether the picture changed.
+    fn finish(&mut self, loaded: Loaded) -> bool {
+        match self.loader.opening.finish(loaded) {
+            Some((path, Ok(image))) => {
                 self.source = Some(Arc::new(image));
                 self.path = Some(path);
                 self.problem = None;
                 self.preview.clear();
+                true
             }
-            Err(problem) => self.problem = Some(problem),
+            Some((_, Err(problem))) => {
+                self.problem = Some(problem);
+                false
+            }
+            None => false,
         }
     }
 
@@ -133,6 +273,14 @@ impl ImageTab {
 
     /// The print job, or a short reason Print is unavailable.
     pub fn job(&self, saved_media: Option<&Media>) -> Result<Job, &'static str> {
+        if self.loader.opening.pending.is_some() {
+            return Err(OPENING);
+        }
+        self.shown_job(saved_media)
+    }
+
+    /// The job for the picture on screen, which may be about to be replaced.
+    fn shown_job(&self, saved_media: Option<&Media>) -> Result<Job, &'static str> {
         Ok(Job::Image {
             source: self.source.clone().ok_or("Choose a picture to print")?,
             media: self
@@ -165,11 +313,28 @@ impl ImageTab {
                             )
                             .pick_file()
                     {
-                        self.open(path);
+                        self.open(ui.ctx(), path);
                         edited = true;
                     }
                 });
             });
+            if let Some(name) = self
+                .loader
+                .opening
+                .pending
+                .as_ref()
+                .and_then(|path| path.file_name())
+            {
+                ui.horizontal(|ui| {
+                    // The default spinner is a whole control tall, which
+                    // dwarfs a one-line note.
+                    ui.add(egui::Spinner::new().size(16.0));
+                    ui.label(
+                        egui::RichText::new(format!("Opening {}…", name.to_string_lossy()))
+                            .color(p.muted),
+                    );
+                });
+            }
             if let Some(problem) = &self.problem {
                 problem_ui(ui, problem);
             }
@@ -233,7 +398,7 @@ impl ImageTab {
 
     pub fn preview_ui(&mut self, ui: &mut egui::Ui, saved_media: Option<&Media>) {
         let media = self.media(saved_media);
-        match (self.job(saved_media), &media) {
+        match (self.shown_job(saved_media), &media) {
             (Ok(job), Some(media)) => {
                 let key = (media.clone(), self.fit, self.style);
                 self.preview.update(ui.ctx(), &key, || {
@@ -268,7 +433,7 @@ mod tests {
         let gap: Media = "gap:50x30".parse().unwrap();
         let mut tab = ImageTab::default();
         assert_eq!(tab.job(Some(&gap)).err(), Some("Choose a picture to print"));
-        tab.open(png());
+        tab.open_now(png());
         assert_eq!(
             tab.job(None).err(),
             Some("Enter the label size to print"),
@@ -320,10 +485,77 @@ mod tests {
     #[test]
     fn unreadable_files_report_an_error() {
         let mut tab = ImageTab::default();
-        tab.open(PathBuf::from("/nonexistent.png"));
+        tab.open_now(PathBuf::from("/nonexistent.png"));
         let problem = tab.problem.as_ref().unwrap();
         assert_eq!(problem.summary, "Couldn't open this picture.");
         assert!(problem.details.contains("/nonexistent.png"));
         assert!(tab.source.is_none());
+    }
+
+    fn loaded(generation: u64, path: &str) -> Loaded {
+        Loaded {
+            generation,
+            path: path.into(),
+            result: Ok(RgbaImage::new(1, 1)),
+        }
+    }
+
+    #[test]
+    fn an_open_is_pending_until_its_result_arrives() {
+        let mut opening = Opening::default();
+        let generation = opening.begin("a.png".into());
+        assert_eq!(opening.pending, Some("a.png".into()));
+        let (path, result) = opening.finish(loaded(generation, "a.png")).unwrap();
+        assert_eq!(path, PathBuf::from("a.png"));
+        assert!(result.is_ok());
+        assert_eq!(opening.pending, None);
+    }
+
+    #[test]
+    fn only_the_latest_open_is_applied() {
+        let mut opening = Opening::default();
+        let first = opening.begin("a.png".into());
+        let second = opening.begin("b.png".into());
+        assert!(opening.finish(loaded(first, "a.png")).is_none());
+        assert_eq!(opening.pending, Some("b.png".into()), "still waiting");
+        assert!(opening.finish(loaded(second, "b.png")).is_some());
+        // A result arriving after its open was applied is never applied twice.
+        assert!(opening.finish(loaded(second, "b.png")).is_none());
+    }
+
+    #[test]
+    fn the_previous_picture_stays_while_the_next_opens() {
+        let gap: Media = "gap:50x30".parse().unwrap();
+        let mut tab = ImageTab::default();
+        tab.open_now(png());
+        let generation = tab.begin("/elsewhere/next.png".into());
+        assert_eq!(tab.job(Some(&gap)).err(), Some("Opening the picture…"));
+        assert!(tab.shown_job(Some(&gap)).is_ok(), "the preview keeps it");
+        assert_eq!(tab.path, Some(png()));
+
+        // A failed open reports why and goes back to the picture it kept.
+        assert!(!tab.finish(Loaded {
+            generation,
+            path: "/elsewhere/next.png".into(),
+            result: Err(Problem::new(TOO_LARGE, &anyhow::anyhow!("limits"))),
+        }));
+        assert_eq!(tab.problem.as_ref().unwrap().summary, TOO_LARGE);
+        assert!(tab.job(Some(&gap)).is_ok());
+        assert_eq!(tab.path, Some(png()));
+    }
+
+    #[test]
+    fn opening_decodes_off_the_calling_thread() {
+        let mut tab = ImageTab::default();
+        tab.open(&egui::Context::default(), png());
+        assert!(tab.loader.opening.pending.is_some());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !tab.poll() {
+            assert!(std::time::Instant::now() < deadline, "never loaded");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(tab.path, Some(png()));
+        assert!(tab.source.is_some());
+        assert!(tab.loader.opening.pending.is_none());
     }
 }

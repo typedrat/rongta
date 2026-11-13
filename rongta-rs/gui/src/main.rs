@@ -120,7 +120,7 @@ impl App {
                 self.template.open(path);
                 self.tab = Tab::Template;
             } else {
-                self.image.open(path);
+                self.image.open(ctx, path);
                 self.tab = Tab::Image;
             }
         }
@@ -168,6 +168,9 @@ impl eframe::App for App {
                 Event::Printed(Ok(())) => self.status = Status::Printed,
                 Event::Printed(Err(problem)) => self.status = Status::Failed(problem),
             }
+        }
+        if self.image.poll() {
+            self.status.edited();
         }
 
         let busy = self.busy();

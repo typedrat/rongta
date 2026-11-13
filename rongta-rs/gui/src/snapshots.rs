@@ -331,7 +331,7 @@ fn template_preview() {
 
 fn image_tab(media: Option<&str>) -> ImageTab {
     let mut tab = ImageTab::default();
-    tab.open(PathBuf::from(concat!(
+    tab.open_now(PathBuf::from(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../examples/first-label.png"
     )));
@@ -346,9 +346,20 @@ fn image_form() {
     let mut results = SnapshotResults::new();
     let gap: rongta::media::Media = "gap:50x30".parse().unwrap();
     // The cases without saved media show the label-size hint, two lines tall.
-    let cases: [(&str, Make<ImageTab>, bool, f32); 5] = [
+    let cases: [(&str, Make<ImageTab>, bool, f32); 6] = [
         ("image_form_empty", ImageTab::default, true, 290.0),
         ("image_form_loaded", || image_tab(None), true, 290.0),
+        // The picture already open stays until the next one is decoded.
+        (
+            "image_form_opening",
+            || {
+                let mut tab = image_tab(None);
+                tab.start_opening(PathBuf::from("/photos/holiday.jpg"));
+                tab
+            },
+            true,
+            320.0,
+        ),
         ("image_form_no_size", || image_tab(None), false, 340.0),
         (
             "image_form_invalid",
@@ -360,7 +371,7 @@ fn image_form() {
             "image_form_bad_file",
             || {
                 let mut tab = ImageTab::default();
-                tab.open(PathBuf::from("/nonexistent/photo.jpg"));
+                tab.open_now(PathBuf::from("/nonexistent/photo.jpg"));
                 tab
             },
             true,
