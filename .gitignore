@@ -10,3 +10,5 @@
 /rongta.lock~
 *.apk
 *.xapk
+**/tests/snapshots/**/*.diff.png
+**/tests/snapshots/**/*.new.png

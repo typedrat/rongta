@@ -35,7 +35,7 @@
               filter =
                 path: type:
                 craneLib.filterCargoSources path type
-                || pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) [ ".json" ".ttf" ".toml" ];
+                || pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) [ ".json" ".ttf" ".toml" ".png" ];
             };
             strictDeps = true;
             cargoExtraArgs = "--workspace";
@@ -57,9 +57,17 @@
               libxrandr
             ]
           );
+          # Mesa's software Vulkan driver, named by architecture.
+          lavapipeIcd = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
           rongta = craneLib.buildPackage (
             commonArgs
             // {
+              # The sandbox has no GPU, so the GUI snapshot tests render on
+              # lavapipe; VK_DRIVER_FILES restricts the loader to it.
+              preCheck = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                export VK_DRIVER_FILES=${lavapipeIcd}
+                export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ]}
+              '';
               cargoArtifacts = craneLib.buildDepsOnly commonArgs;
               meta.mainProgram = "rongta";
             }
@@ -135,6 +143,12 @@
                   {
                     name = "LD_LIBRARY_PATH";
                     prefix = pkgs.lib.makeLibraryPath guiLibraries;
+                  }
+                  # Adds lavapipe for headless GUI snapshot tests without hiding
+                  # the real GPU, so `cargo run` still renders on hardware.
+                  {
+                    name = "VK_ADD_DRIVER_FILES";
+                    value = lavapipeIcd;
                   }
                 ];
 

@@ -42,12 +42,20 @@ impl eframe::App for App {
                 ui.selectable_value(&mut self.tab, Tab::Image, "Image");
             });
             ui.add_space(8.0);
-            theme::card(ui, |ui| {
-                ui.heading("Rongta Labels");
-                ui.label("Theme check");
-                ui.label(egui::RichText::new("Secondary text").color(theme::palette(ui).muted));
-                let _ = theme::primary_button(ui, "Print", true);
-            });
+            theme_demo(ui);
         });
     }
 }
+
+/// A card exercising the theme's main surfaces, text styles and button.
+fn theme_demo(ui: &mut egui::Ui) {
+    theme::card(ui, |ui| {
+        ui.heading("Rongta Labels");
+        ui.label("Theme check");
+        ui.label(egui::RichText::new("Secondary text").color(theme::palette(ui).muted));
+        let _ = theme::primary_button(ui, "Print", true);
+    });
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod snapshots;
