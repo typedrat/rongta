@@ -1,3 +1,4 @@
+use qrcode::{EcLevel, QrCode};
 use rongta_template::{Case, Template, Values};
 
 const EXAMPLE: &str = include_str!("../examples/access-code.rongta.toml");
@@ -66,6 +67,18 @@ fn decode_qr(image: &image::RgbaImage) -> String {
     grids[0].decode().unwrap().1
 }
 
+/// Expected QR side, quiet zone included, under the layout rule: with text,
+/// the QR leaves at least 40% of the printable width for it.
+fn expected_qr_side(template: &Template, url: &str) -> u32 {
+    let (width, height) = template.printable_size();
+    let modules = QrCode::with_error_correction_level(url, EcLevel::M)
+        .unwrap()
+        .width() as u32;
+    let text_width = (width * 2).div_ceil(5);
+    let module = height.min(width - text_width) / (modules + 8);
+    module * (modules + 8)
+}
+
 #[test]
 fn rendered_label_has_a_scannable_qr_with_the_encoded_value() {
     let template = Template::parse(EXAMPLE).unwrap();
@@ -77,13 +90,82 @@ fn rendered_label_has_a_scannable_qr_with_the_encoded_value() {
             .pixels()
             .all(|p| p.0 == [0, 0, 0, 255] || p.0 == [255; 4])
     );
-    assert_eq!(decode_qr(&image), "https://example.com/redeem?code=AB12CD");
-    // The text column holds ink; it lies left of the QR's 148-dot square.
+    let url = "https://example.com/redeem?code=AB12CD";
+    assert_eq!(decode_qr(&image), url);
+    // Version 3 (29 modules) at 4 dots per module, so 148 dots square,
+    // leaving a 236-dot column whose first 8 dots are an inset.
+    let side = expected_qr_side(&template, url);
+    assert_eq!(side, 148);
     let text_ink = image
         .enumerate_pixels()
-        .filter(|(x, _, p)| *x < 384 - 148 && p.0[0] == 0)
+        .filter(|(x, _, p)| *x < 384 - side && p.0[0] == 0)
         .count();
     assert!(text_ink > 200, "{text_ink}");
+}
+
+#[test]
+fn square_and_portrait_labels_fit_qr_and_text() {
+    let url = "https://example.com/redeem?code=AB12CD";
+    for media in ["gap:50x50", "gap:40x40", "gap:40x60"] {
+        let template = Template::parse(&EXAMPLE.replace("gap:50x25", media)).unwrap();
+        let image = template
+            .render(&values(&[("code", "AB12CD")]))
+            .unwrap_or_else(|error| panic!("{media}: {error:#}"));
+        assert_eq!(decode_qr(&image), url, "{media}");
+
+        let (width, height) = template.printable_size();
+        let side = expected_qr_side(&template, url);
+        assert!(width - side >= (width * 2).div_ceil(5), "{media}");
+        let inked = |x0: u32, x1: u32| {
+            image
+                .enumerate_pixels()
+                .filter(|(x, _, p)| (x0..x1).contains(x) && p.0[0] == 0)
+                .count()
+        };
+        // Dark modules stay inside the QR square, inside its quiet zone.
+        let qr = image
+            .enumerate_pixels()
+            .filter(|(x, _, p)| *x >= width - side && p.0[0] == 0)
+            .map(|(x, y, _)| (x, y));
+        let (min_y, max_y) = qr.fold((u32::MAX, 0), |(lo, hi), (_, y)| (lo.min(y), hi.max(y)));
+        let top = (height - side) / 2;
+        assert!(
+            min_y > top && max_y < top + side,
+            "{media}: {min_y}..{max_y}"
+        );
+        assert!(inked(0, 8) == 0, "{media}: text inside the 1 mm inset");
+        assert!(inked(8, width - side) > 200, "{media}: no text");
+    }
+}
+
+#[test]
+fn without_text_the_qr_takes_the_whole_short_side() {
+    let source = EXAMPLE.replace("gap:50x25", "gap:50x50");
+    let source = &source[..source.find("[[text]]").unwrap()];
+    let template = Template::parse(source).unwrap();
+    let image = template.render(&values(&[("code", "AB12CD")])).unwrap();
+    assert_eq!(decode_qr(&image), "https://example.com/redeem?code=AB12CD");
+    // 384 / (29 + 8) gives 10-dot modules: 290 dots of modules.
+    let xs: Vec<u32> = image
+        .enumerate_pixels()
+        .filter(|(_, _, p)| p.0[0] == 0)
+        .map(|(x, _, _)| x)
+        .collect();
+    let (left, right) = (xs.iter().min().unwrap(), xs.iter().max().unwrap());
+    assert_eq!(right - left + 1, 290);
+}
+
+#[test]
+fn characters_the_font_lacks_are_refused() {
+    let source = EXAMPLE
+        .replace("pattern = \"[A-Z0-9]{6,12}\"\n", "")
+        .replace("case = \"upper\"\n", "");
+    let template = Template::parse(&source).unwrap();
+    let error = format!(
+        "{:#}",
+        template.render(&values(&[("code", "AB12🙂")])).unwrap_err()
+    );
+    assert!(error.contains('🙂'), "{error}");
 }
 
 #[test]

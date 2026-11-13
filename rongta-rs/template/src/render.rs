@@ -13,6 +13,11 @@ const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'~');
 
 impl Template {
+    /// Draws the printable area alone, one pixel per dot, in pure black and
+    /// white. `values` must already have been through `normalize`. Fails on
+    /// the errors `check` reports and on layout problems it cannot see: text
+    /// too long to fit, QR content too long, or characters the font lacks, so
+    /// only a successful render shows that a label can print.
     pub fn render(&self, values: &Values) -> Result<RgbaImage> {
         let errors = self.check(values);
         ensure!(
@@ -29,7 +34,13 @@ impl Template {
         let url = interpolate::fill(&self.qr, |name| {
             utf8_percent_encode(&values[name], COMPONENT).to_string()
         });
-        let column = qr::draw(&mut canvas, &url, self.error_correction)?;
+        // Text needs at least 40% of the width to stay legible beside the code.
+        let max_side = if self.lines.is_empty() {
+            width.min(height)
+        } else {
+            height.min(width - (width * 2).div_ceil(5))
+        };
+        let column = qr::draw(&mut canvas, &url, self.error_correction, max_side)?;
         let lines: Vec<text::Line> = self
             .lines
             .iter()
@@ -43,6 +54,8 @@ impl Template {
         Ok(DynamicImage::ImageLuma8(canvas).into_rgba8())
     }
 
+    /// The whole label canvas at `head_width` dots, as it should be previewed
+    /// and printed.
     pub fn raster(&self, values: &Values, head_width: u32) -> Result<Raster> {
         let image = self.render(values)?;
         // The image is already pure black and white, so any mid threshold is exact.

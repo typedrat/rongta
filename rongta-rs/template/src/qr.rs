@@ -21,23 +21,26 @@ impl From<ErrorCorrection> for EcLevel {
     }
 }
 
-/// Draws `data` as large as the canvas height allows, flush right, and
-/// returns the x where its quiet zone begins.
-pub fn draw(canvas: &mut GrayImage, data: &str, level: ErrorCorrection) -> Result<u32> {
+/// Draws `data` as the largest whole-dot code that fits a `max_side` square,
+/// quiet zone included, flush right and centred vertically. Returns the x
+/// where its quiet zone begins.
+pub fn draw(
+    canvas: &mut GrayImage,
+    data: &str,
+    level: ErrorCorrection,
+    max_side: u32,
+) -> Result<u32> {
     let code = QrCode::with_error_correction_level(data, level.into())
         .context("The QR content is too long to encode")?;
     let modules = code.width() as u32;
-    let module = canvas.height() / (modules + 2 * QUIET_MODULES);
+    let max_side = max_side.min(canvas.width()).min(canvas.height());
+    let module = max_side / (modules + 2 * QUIET_MODULES);
     ensure!(
         module >= MIN_MODULE_DOTS,
         "The QR code needs {modules} modules per side, too many to scan on this label; \
          shorten the link or use a taller label"
     );
     let side = (modules + 2 * QUIET_MODULES) * module;
-    ensure!(
-        side <= canvas.width(),
-        "The QR code is wider than this label"
-    );
     let left = canvas.width() - side;
     let top = (canvas.height() - side) / 2;
     for (index, color) in code.to_colors().into_iter().enumerate() {
