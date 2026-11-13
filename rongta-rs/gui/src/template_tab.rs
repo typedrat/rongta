@@ -11,10 +11,11 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 /// Layout failures whose message already names, in plain words, the text
 /// that has to change.
-const PLAIN_LAYOUT_FAILURES: [&str; 3] = [
+const PLAIN_LAYOUT_FAILURES: [&str; 4] = [
     "too long to fit",
     "which the label font cannot print",
     "too long to encode",
+    "too many to scan",
 ];
 
 #[derive(Default)]
@@ -27,11 +28,16 @@ pub struct TemplateTab {
 }
 
 fn render_problem(error: &anyhow::Error) -> Problem {
-    let cause = error.root_cause().to_string();
-    let summary = if PLAIN_LAYOUT_FAILURES.iter().any(|s| cause.contains(s)) {
-        format!("This label can't be drawn: {cause}.")
-    } else {
-        "This label can't be drawn.".to_owned()
+    // The plain sentence is sometimes the outermost context, as for QR
+    // content over a library error, and sometimes the root cause, so the
+    // whole chain is searched.
+    let plain = error
+        .chain()
+        .map(ToString::to_string)
+        .find(|layer| PLAIN_LAYOUT_FAILURES.iter().any(|s| layer.contains(s)));
+    let summary = match plain {
+        Some(message) => format!("This label can't be drawn: {message}."),
+        None => "This label can't be drawn.".to_owned(),
     };
     Problem::new(summary, error)
 }
@@ -239,5 +245,68 @@ mod tests {
         assert!(problem.summary.starts_with("This template can't be used."));
         assert!(problem.details.contains("Cannot read template"));
         assert!(tab.template.is_some());
+    }
+
+    const BADGE: &str = include_str!("../tests/fixtures/name-badge.rongta.toml");
+
+    /// The problem the preview would show for `name` on the name badge, or
+    /// for the example's code when `template` is the access-code one.
+    fn real_problem(template: &str, field: &str, value: &str) -> Problem {
+        let template = Template::parse(template).unwrap();
+        let values = template.normalize(&Values::from([(field.to_owned(), value.to_owned())]));
+        let error = template.raster(&values, HEAD_DOTS).unwrap_err();
+        render_problem(&error)
+    }
+
+    fn unpatterned_example() -> String {
+        std::fs::read_to_string(example())
+            .unwrap()
+            .replace("pattern = \"[A-Z0-9]{6,12}\"\n", "")
+    }
+
+    #[test]
+    fn a_qr_code_too_long_to_encode_says_so() {
+        let problem = real_problem(&unpatterned_example(), "code", &"A".repeat(10_000));
+        assert!(
+            problem
+                .summary
+                .contains("The QR content is too long to encode"),
+            "{}",
+            problem.summary
+        );
+    }
+
+    #[test]
+    fn a_qr_code_too_dense_to_scan_says_so() {
+        let problem = real_problem(&unpatterned_example(), "code", &"A".repeat(300));
+        assert!(
+            problem.summary.contains("too many to scan on this label"),
+            "{}",
+            problem.summary
+        );
+    }
+
+    #[test]
+    fn text_too_long_beside_the_qr_code_says_so() {
+        let problem = real_problem(BADGE, "name", "Bartholomew Montgomery-Fitzwilliam");
+        assert!(
+            problem
+                .summary
+                .contains("too long to fit beside the QR code"),
+            "{}",
+            problem.summary
+        );
+    }
+
+    #[test]
+    fn an_unprintable_character_says_so() {
+        let problem = real_problem(BADGE, "name", "\u{1F600}");
+        assert!(
+            problem
+                .summary
+                .contains("which the label font cannot print"),
+            "{}",
+            problem.summary
+        );
     }
 }

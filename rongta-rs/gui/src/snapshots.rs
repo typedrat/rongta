@@ -445,6 +445,13 @@ fn whole_app() {
             egui::vec2(DEFAULT_WIDTH, DEFAULT_HEIGHT),
             1.25,
         ),
+        // 1.5 is where a too-tight zoom tolerance would drop the preview to
+        // the shrunk path, since egui rounds rects to 1/32 of a point.
+        (
+            "app_default_scaled_1_5",
+            egui::vec2(DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            1.5,
+        ),
     ] {
         for (theme, suffix) in THEMES {
             let mut harness = Harness::builder()
