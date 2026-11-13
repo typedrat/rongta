@@ -33,9 +33,9 @@ jobs:
         uses: actions/checkout@v4
       - name: Compare
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' rongta-rs/gui/Cargo.toml | head -n 1)
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("rongta-rs/Cargo.toml", "rb"))["workspace"]["package"]["version"])')
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME doesn't match rongta-gui version $version" >&2
+            echo "Tag $GITHUB_REF_NAME doesn't match workspace version $version" >&2
             exit 1
           fi
 name: Release
