@@ -190,6 +190,9 @@
           # table is another third of the file and nothing reads it in a GUI
           # build.
           stripAllList = [ "bin" ];
+          # The zip's own check can't see inside deflated data, so this is
+          # where a store path leaking into the binary gets caught.
+          allowedReferences = [ ];
         }
       );
       # Anything outside this list must ship beside the .exe or be rejected.
@@ -245,7 +248,7 @@
               pkgs.zip
               pkgsWindows.buildPackages.binutils
             ];
-            # A zip that mentions /nix/store would only work next to Nix.
+            # Deflate hides store hashes, so the meaningful check is on the exe.
             allowedReferences = [ ];
           }
           ''
@@ -379,7 +382,7 @@
             chmod -R u+w "$app"
             # zip records each file's mtime, and the oldest date it can store
             # is 1980; pinning one keeps the archive reproducible.
-            find "$app" -exec touch -d 1980-01-01T00:00:00Z {} +
+            find "$app" -exec touch -h -d 1980-01-01T00:00:00Z {} +
             find "$app" -print | LC_ALL=C sort | zip -X -y -@ $out
           '';
     in
