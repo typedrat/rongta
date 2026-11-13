@@ -17,24 +17,16 @@
         name = "Install Nix";
         uses = "DeterminateSystems/determinate-nix-action@v3";
       };
-      # Keyed on the job and the Nix inputs (flake files and Cargo.lock), not on
-      # Rust sources. A stale hit is fine because the cache only speeds up the
-      # build; Nix still rebuilds whatever changed. The label keeps jobs from
-      # fighting over one key, since only the first job to finish saves it.
-      cache = label: {
-        name = "Nix store cache";
-        uses = "nix-community/cache-nix-action@v6";
-        with_ = {
-          primary-key = "nix-${label}-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('flake.lock', 'nix/**', 'flake.nix', 'rongta-rs/Cargo.lock') }}";
-          restore-prefixes-first-match = "nix-${label}-\${{ runner.os }}-\${{ runner.arch }}-";
-          gc-max-store-size-linux = "8G";
-          gc-max-store-size-macos = "8G";
-        };
+      # Pulls whatever the Determinate CI job already built from FlakeHub
+      # Cache, so these jobs only package and smoke-test.
+      cache = {
+        name = "FlakeHub Cache";
+        uses = "DeterminateSystems/flakehub-cache-action@main";
       };
-      setup = label: [
+      setup = [
         checkout
         installNix
-        (cache label)
+        cache
       ];
       upload = name: path: {
         name = "Upload ${name}";
@@ -62,30 +54,30 @@
             group = "\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}";
             cancelInProgress = true;
           };
-          permissions.contents = "read";
+          # FlakeHub Cache authenticates with the job's OIDC token.
+          permissions = {
+            id-token = "write";
+            contents = "read";
+          };
 
           jobs = {
-            check = {
-              name = "Tests and checks";
-              runsOn = "ubuntu-24.04";
-              steps = setup "check" ++ [
-                {
-                  # flake check only evaluates packages, so building rongta is
-                  # what runs the unit and GUI snapshot tests (doCheck, on
-                  # lavapipe in the sandbox).
-                  name = "Build and test rongta";
-                  run = "nix build -L .#rongta";
-                }
-                {
-                  name = "nix flake check";
-                  run = "nix flake check -L";
-                }
-              ];
+            # Builds every package, check and dev shell on each system the
+            # flake supports, which runs the test suites, pushes the results to
+            # FlakeHub Cache, and publishes the flake to FlakeHub from master
+            # and from tags.
+            nix = {
+              uses = "DeterminateSystems/ci/.github/workflows/workflow.yml@main";
+              permissions = {
+                id-token = "write";
+                contents = "read";
+              };
+              with_.visibility = "public";
             };
 
             linux = {
               name = "AppImage (\${{ matrix.arch }})";
               runsOn = "\${{ matrix.runner }}";
+              needs = [ "nix" ];
               strategy = {
                 failFast = false;
                 matrix.include = [
@@ -99,7 +91,7 @@
                   }
                 ];
               };
-              steps = setup "linux-\${{ matrix.arch }}" ++ [
+              steps = setup ++ [
                 {
                   name = "Build";
                   run = ''
@@ -145,7 +137,8 @@
             windows-build = {
               name = "Windows zip (cross-compiled)";
               runsOn = "ubuntu-24.04";
-              steps = setup "windows-build" ++ [
+              needs = [ "nix" ];
+              steps = setup ++ [
                 {
                   name = "Build";
                   run = ''
@@ -184,7 +177,8 @@
             macos = {
               name = "macOS app (arm64)";
               runsOn = "macos-latest";
-              steps = setup "macos" ++ [
+              needs = [ "nix" ];
+              steps = setup ++ [
                 {
                   name = "Build";
                   run = ''
@@ -239,6 +233,10 @@
             build = {
               needs = [ "version" ];
               uses = "./.github/workflows/ci.yml";
+              permissions = {
+                id-token = "write";
+                contents = "read";
+              };
             };
 
             publish = {

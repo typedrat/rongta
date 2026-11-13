@@ -1,5 +1,5 @@
 {
-  description = "Rongta printer tools and analysis with Android Emulator and Bumble";
+  description = "Print labels on the Rongta R22 Bluetooth thermal printer";
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
