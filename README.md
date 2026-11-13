@@ -235,8 +235,10 @@ under the SIL Open Font License.
 
 `rongta-gui` is a desktop window for the same printer: fill in a label
 template or pick a picture, check the preview, and print. It shares its saved
-settings with the CLI. See [notes/gui.md](notes/gui.md) for building it, for
-sending it to someone on a Mac, and for its current status.
+settings with the CLI. Linux AppImages, a Windows zip and a macOS app are
+attached to each [GitHub release](https://github.com/typedrat/rongta/releases).
+See [notes/gui.md](notes/gui.md) for building and releasing it, for sending it
+to someone on a Mac, and for its current status.
 
 ```sh
 cd rongta-rs

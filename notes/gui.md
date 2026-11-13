@@ -44,16 +44,41 @@ On Linux, winit and wgpu load the windowing and graphics libraries at run
 time. The dev shell puts them on `LD_LIBRARY_PATH`, and the Nix package wraps
 `rongta-gui` to do the same.
 
-Nothing builds AppImages, a Windows zip or a macOS app yet. On Windows, run
-`cargo build --release -p rongta-gui` on a machine with the MSVC toolchain and
-zip `rongta-gui.exe`. No console window opens, because the binary is built
-with `windows_subsystem`.
+## Packages
+
+Each package is a Nix build, run from the repository root:
+
+| Package | Command | Builds on |
+| --- | --- | --- |
+| Linux AppImage | `nix build .#rongta-gui-appimage` | x86_64 or aarch64 Linux |
+| Windows zip | `nix build .#rongta-gui-windows` | x86_64 Linux (cross) |
+| macOS app (zip) | `nix build .#rongta-gui-macos` | aarch64 macOS |
+
+The AppImage runs on any Linux with glibc 2.28 or newer (Debian 10, Ubuntu
+20.04, RHEL 8 and later) and the system's D-Bus library. Graphics drivers come
+from the system rather than the AppImage. Without FUSE, run it with
+`--appimage-extract-and-run`. On NixOS, use the Nix package instead.
+
+The Windows zip holds `Rongta Labels.exe`, which needs nothing else installed.
+No console window opens, because the binary is built with `windows_subsystem`.
+
+CI builds all three on every pull request and smoke-tests them on their own
+platforms. To publish a release, set the version in `rongta-rs/gui/Cargo.toml`,
+merge, then push a matching tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The release workflow refuses a tag that doesn't match the version, runs the
+full CI, and attaches the AppImages and both zips to a GitHub release.
 
 ## Sending it to someone on a Mac
 
-There is no macOS app bundle yet. Once there is, it will be ad-hoc signed, not
-notarized, so macOS will block it the first time. These are the macOS 15 and
-later steps to read out over the phone:
+Send `Rongta-Labels-macos-arm64.zip`; it unzips to `Rongta Labels.app`, which
+needs an Apple silicon Mac. The app is ad-hoc signed, not notarized, so macOS
+blocks it the first time. These are the macOS 15 and later steps to read out
+over the phone:
 
 - Double-click the app. It's blocked; click **Done**. (Right-click, then Open,
   no longer works around this on macOS 15 and later.)
